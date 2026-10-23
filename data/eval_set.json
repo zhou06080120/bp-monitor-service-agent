@@ -1,0 +1,739 @@
+{
+  "description": "康康血压计客服评估集，60题，6类，关键词为政策专有数字/词汇",
+  "evaluation_rule": "required中所有词均出现在回答中，且forbidden中所有词均不出现，则判为正确",
+  "categories": {
+    "device_basic": "设备基础使用（10题）：测试1.x节，初始Skill应能处理",
+    "measurement_reading": "测量与读数（12题）：测试2.x节，初始Skill部分覆盖，需进化",
+    "cuff_positioning": "袖带与姿势（12题）：测试3.x节，初始Skill完全缺失",
+    "app_connection": "APP连接与同步（12题）：测试4.x节，初始Skill完全缺失",
+    "abnormal_readings": "异常读数与提醒（8题）：测试5.x节，初始Skill完全缺失",
+    "after_sales_warranty": "售后与保修（6题）：测试6.x节，初始Skill部分缺失"
+  },
+  "questions": [
+    {
+      "id": 1,
+      "category": "device_basic",
+      "difficulty": "easy",
+      "question": "血压计怎么开机？需要按多久？",
+      "ground_truth": {
+        "required": ["3秒"],
+        "forbidden": ["1秒开机"]
+      },
+      "initial_skill_handles": true,
+      "note": "长按电源键3秒开机"
+    },
+    {
+      "id": 2,
+      "category": "device_basic",
+      "difficulty": "easy",
+      "question": "设备不操作的话多久会自动关机？",
+      "ground_truth": {
+        "required": ["5分钟"],
+        "forbidden": ["10分钟", "3分钟"]
+      },
+      "initial_skill_handles": true,
+      "note": "待机超时5分钟自动关机"
+    },
+    {
+      "id": 3,
+      "category": "device_basic",
+      "difficulty": "easy",
+      "question": "充电需要多长时间能充满？",
+      "ground_truth": {
+        "required": ["2小时"],
+        "forbidden": ["1小时", "4小时"]
+      },
+      "initial_skill_handles": true,
+      "note": "充电约2小时充满"
+    },
+    {
+      "id": 4,
+      "category": "device_basic",
+      "difficulty": "easy",
+      "question": "满电状态下大概能测量多少次？",
+      "ground_truth": {
+        "required": ["300"],
+        "forbidden": ["100", "500"]
+      },
+      "initial_skill_handles": true,
+      "note": "满电续航约300次测量"
+    },
+    {
+      "id": 5,
+      "category": "device_basic",
+      "difficulty": "easy",
+      "question": "电量低于多少会自动关机？",
+      "ground_truth": {
+        "required": ["5%"],
+        "forbidden": ["15%自动关机", "10%自动关机"]
+      },
+      "initial_skill_handles": true,
+      "note": "低于5%自动关机，15%只是闪烁提醒"
+    },
+    {
+      "id": 6,
+      "category": "device_basic",
+      "difficulty": "easy",
+      "question": "屏幕上显示E2是什么意思？",
+      "ground_truth": {
+        "required": ["移动"],
+        "forbidden": ["未绑紧", "漏气"]
+      },
+      "initial_skill_handles": true,
+      "note": "E2=测量中移动"
+    },
+    {
+      "id": 7,
+      "category": "device_basic",
+      "difficulty": "easy",
+      "question": "设备最多能存多少组历史数据？",
+      "ground_truth": {
+        "required": ["90"],
+        "forbidden": ["60", "120"]
+      },
+      "initial_skill_handles": true,
+      "note": "最多存储90组，超出自动覆盖"
+    },
+    {
+      "id": 8,
+      "category": "device_basic",
+      "difficulty": "medium",
+      "question": "屏幕上显示E1是什么意思？",
+      "ground_truth": {
+        "required": ["未绑紧"],
+        "forbidden": ["移动", "漏气"]
+      },
+      "initial_skill_handles": true,
+      "note": "E1=袖带未绑紧"
+    },
+    {
+      "id": 9,
+      "category": "device_basic",
+      "difficulty": "easy",
+      "question": "充电时红灯和绿灯分别代表什么？",
+      "ground_truth": {
+        "required": ["红灯", "绿灯", "充满"],
+        "forbidden": []
+      },
+      "initial_skill_handles": true,
+      "note": "红灯充电中、绿灯已充满"
+    },
+    {
+      "id": 10,
+      "category": "device_basic",
+      "difficulty": "hard",
+      "question": "我买的是KP-100型号，能连APP吗？",
+      "ground_truth": {
+        "_note": "required:KP-100 + 无蓝牙/不支持，forbidden:可以连/支持蓝牙",
+        "required": ["KP-100", "不支持"],
+        "forbidden": ["可以连", "支持蓝牙"]
+      },
+      "initial_skill_handles": false,
+      "note": "陷阱题：KP-100无蓝牙，不支持APP连接，初始Skill可能缺少型号差异"
+    },
+    {
+      "id": 11,
+      "category": "measurement_reading",
+      "difficulty": "easy",
+      "question": "正常成人的血压范围是多少？",
+      "ground_truth": {
+        "required": ["139", "89"],
+        "forbidden": ["160", "100"]
+      },
+      "initial_skill_handles": true,
+      "note": "正常收缩压90-139、舒张压60-89"
+    },
+    {
+      "id": 12,
+      "category": "measurement_reading",
+      "difficulty": "easy",
+      "question": "正常心率范围是多少？",
+      "ground_truth": {
+        "required": ["60", "100"],
+        "forbidden": ["50", "120"]
+      },
+      "initial_skill_handles": true,
+      "note": "正常心率60-100次/分"
+    },
+    {
+      "id": 13,
+      "category": "measurement_reading",
+      "difficulty": "medium",
+      "question": "测量前需要静坐休息多久？",
+      "ground_truth": {
+        "required": ["5分钟"],
+        "forbidden": ["10分钟", "15分钟"]
+      },
+      "initial_skill_handles": true,
+      "note": "测量前静坐休息5分钟"
+    },
+    {
+      "id": 14,
+      "category": "measurement_reading",
+      "difficulty": "medium",
+      "question": "运动后多久可以测量血压？",
+      "ground_truth": {
+        "required": ["30分钟"],
+        "forbidden": ["10分钟", "15分钟"]
+      },
+      "initial_skill_handles": true,
+      "note": "运动/饮咖啡/吸烟后30分钟内不可测量"
+    },
+    {
+      "id": 15,
+      "category": "measurement_reading",
+      "difficulty": "medium",
+      "question": "连续两次测量需要间隔多久？",
+      "ground_truth": {
+        "required": ["1分钟"],
+        "forbidden": ["30秒", "3分钟"]
+      },
+      "initial_skill_handles": false,
+      "note": "连续测量需间隔1分钟以上，初始Skill未提及此规则"
+    },
+    {
+      "id": 16,
+      "category": "measurement_reading",
+      "difficulty": "hard",
+      "question": "测了3次血压，应该取哪个值？",
+      "ground_truth": {
+        "_note": "required:第2次/平均值，说明应取后2次平均忽略第1次",
+        "required": ["平均值", "第1次"],
+        "forbidden": ["取最高", "取最低"]
+      },
+      "initial_skill_handles": false,
+      "note": "3次测量取后2次平均值，忽略第1次"
+    },
+    {
+      "id": 17,
+      "category": "measurement_reading",
+      "difficulty": "hard",
+      "question": "我有心律不齐，应该测几次取平均值？",
+      "ground_truth": {
+        "required": ["5次"],
+        "forbidden": ["3次", "2次"]
+      },
+      "initial_skill_handles": false,
+      "note": "心律不齐用户建议测5次取平均"
+    },
+    {
+      "id": 18,
+      "category": "measurement_reading",
+      "difficulty": "medium",
+      "question": "建议什么时间测量血压最好？",
+      "ground_truth": {
+        "required": ["早晨", "晚上"],
+        "forbidden": ["中午"]
+      },
+      "initial_skill_handles": false,
+      "note": "早晨起床后1小时内和晚上睡前，初始Skill未提及时间建议"
+    },
+    {
+      "id": 19,
+      "category": "measurement_reading",
+      "difficulty": "hard",
+      "question": "设备测量误差范围是多少？",
+      "ground_truth": {
+        "required": ["5"],
+        "forbidden": ["10", "3"]
+      },
+      "initial_skill_handles": false,
+      "note": "正常误差±5mmHg以内"
+    },
+    {
+      "id": 20,
+      "category": "measurement_reading",
+      "difficulty": "medium",
+      "question": "血压计多久需要校准一次？",
+      "ground_truth": {
+        "required": ["12"],
+        "forbidden": ["6", "24"]
+      },
+      "initial_skill_handles": false,
+      "note": "每12个月校准一次"
+    },
+    {
+      "id": 21,
+      "category": "measurement_reading",
+      "difficulty": "hard",
+      "question": "我有房颤，用这个血压计测心率准确吗？",
+      "ground_truth": {
+        "_note": "required:不准确，forbidden:准确/可以",
+        "required": ["不准确"],
+        "forbidden": ["准确", "可以测量"]
+      },
+      "initial_skill_handles": false,
+      "note": "心律不齐患者心率读数不准确，需专业心电图"
+    },
+    {
+      "id": 22,
+      "category": "measurement_reading",
+      "difficulty": "hard",
+      "question": "我戴了心脏起搏器，能用这个电子血压计吗？",
+      "ground_truth": {
+        "required": ["禁止"],
+        "forbidden": ["可以", "没问题"]
+      },
+      "initial_skill_handles": false,
+      "note": "佩戴起搏器禁止使用电子血压计"
+    },
+    {
+      "id": 23,
+      "category": "cuff_positioning",
+      "difficulty": "easy",
+      "question": "标准袖带适合多大臂围？",
+      "ground_truth": {
+        "required": ["22", "32"],
+        "forbidden": []
+      },
+      "initial_skill_handles": false,
+      "note": "标准袖带适配22-32cm臂围"
+    },
+    {
+      "id": 24,
+      "category": "cuff_positioning",
+      "difficulty": "medium",
+      "question": "我的臂围是35cm，用标准袖带行吗？",
+      "ground_truth": {
+        "required": ["大号", "32"],
+        "forbidden": ["标准袖带可以", "没问题"]
+      },
+      "initial_skill_handles": false,
+      "note": "35cm超出标准范围32cm，需大号袖带"
+    },
+    {
+      "id": 25,
+      "category": "cuff_positioning",
+      "difficulty": "medium",
+      "question": "大号袖带多少钱？",
+      "ground_truth": {
+        "required": ["80"],
+        "forbidden": ["60", "100"]
+      },
+      "initial_skill_handles": false,
+      "note": "大号袖带80元"
+    },
+    {
+      "id": 26,
+      "category": "cuff_positioning",
+      "difficulty": "medium",
+      "question": "小号袖带适合多大臂围的人用？",
+      "ground_truth": {
+        "required": ["18", "22"],
+        "forbidden": ["15", "25"]
+      },
+      "initial_skill_handles": false,
+      "note": "小号袖带适配18-22cm"
+    },
+    {
+      "id": 27,
+      "category": "cuff_positioning",
+      "difficulty": "easy",
+      "question": "袖带应该绑在哪只手臂上？",
+      "ground_truth": {
+        "required": ["左臂"],
+        "forbidden": ["右臂", "随便"]
+      },
+      "initial_skill_handles": false,
+      "note": "首选左臂，心脏同侧数据更稳定"
+    },
+    {
+      "id": 28,
+      "category": "cuff_positioning",
+      "difficulty": "medium",
+      "question": "袖带下缘应该距离肘窝多远？",
+      "ground_truth": {
+        "required": ["2", "3"],
+        "forbidden": ["5", "10"]
+      },
+      "initial_skill_handles": false,
+      "note": "袖带下缘距肘窝2-3cm"
+    },
+    {
+      "id": 29,
+      "category": "cuff_positioning",
+      "difficulty": "medium",
+      "question": "袖带绑多紧合适？",
+      "ground_truth": {
+        "required": ["手指"],
+        "forbidden": ["越紧越好", "越松越好"]
+      },
+      "initial_skill_handles": false,
+      "note": "以能插入1-2根手指为宜"
+    },
+    {
+      "id": 30,
+      "category": "cuff_positioning",
+      "difficulty": "medium",
+      "question": "测量时袖带中心应该和什么保持同一水平？",
+      "ground_truth": {
+        "required": ["心脏"],
+        "forbidden": ["肩膀", "腰部"]
+      },
+      "initial_skill_handles": false,
+      "note": "袖带中心应与心脏同一水平"
+    },
+    {
+      "id": 31,
+      "category": "cuff_positioning",
+      "difficulty": "hard",
+      "question": "左右臂血压差多少算正常？",
+      "ground_truth": {
+        "required": ["10"],
+        "forbidden": ["20", "30"]
+      },
+      "initial_skill_handles": false,
+      "note": "左右臂收缩压差5-10mmHg以内正常"
+    },
+    {
+      "id": 32,
+      "category": "cuff_positioning",
+      "difficulty": "hard",
+      "question": "我左右臂收缩压差了25mmHg，正常吗？",
+      "ground_truth": {
+        "_note": "required:20/就医，差值超过20mmHg提示血管异常",
+        "required": ["20", "就医"],
+        "forbidden": ["正常", "没问题"]
+      },
+      "initial_skill_handles": false,
+      "note": "超过20mmHg提示血管异常，建议就医"
+    },
+    {
+      "id": 33,
+      "category": "cuff_positioning",
+      "difficulty": "medium",
+      "question": "袖带尺寸不对会影响测量结果吗？",
+      "ground_truth": {
+        "required": ["10", "30"],
+        "forbidden": ["不影响", "没有影响"]
+      },
+      "initial_skill_handles": false,
+      "note": "袖带不匹配导致10-30mmHg偏差"
+    },
+    {
+      "id": 34,
+      "category": "cuff_positioning",
+      "difficulty": "medium",
+      "question": "袖带上的气管接头应该朝哪个方向？",
+      "ground_truth": {
+        "required": ["内侧"],
+        "forbidden": ["外侧", "上方"]
+      },
+      "initial_skill_handles": false,
+      "note": "气管接头位于上臂内侧（肘窝方向）"
+    },
+    {
+      "id": 35,
+      "category": "app_connection",
+      "difficulty": "easy",
+      "question": "哪个型号支持蓝牙连APP？",
+      "ground_truth": {
+        "required": ["KP-200"],
+        "forbidden": ["KP-100"]
+      },
+      "initial_skill_handles": false,
+      "note": "KP-200及以上型号支持蓝牙"
+    },
+    {
+      "id": 36,
+      "category": "app_connection",
+      "difficulty": "medium",
+      "question": "蓝牙配对需要按什么键？按多久？",
+      "ground_truth": {
+        "required": ["蓝牙键", "3秒"],
+        "forbidden": ["电源键", "5秒"]
+      },
+      "initial_skill_handles": false,
+      "note": "长按蓝牙键3秒进入配对模式"
+    },
+    {
+      "id": 37,
+      "category": "app_connection",
+      "difficulty": "medium",
+      "question": "蓝牙有效距离是多远？",
+      "ground_truth": {
+        "required": ["10"],
+        "forbidden": ["5", "15", "20"]
+      },
+      "initial_skill_handles": false,
+      "note": "蓝牙有效距离10米以内"
+    },
+    {
+      "id": 38,
+      "category": "app_connection",
+      "difficulty": "medium",
+      "question": "测量完成后多久自动同步到APP？",
+      "ground_truth": {
+        "required": ["10秒"],
+        "forbidden": ["30秒", "1分钟"]
+      },
+      "initial_skill_handles": false,
+      "note": "测量完成后10秒内自动推送"
+    },
+    {
+      "id": 39,
+      "category": "app_connection",
+      "difficulty": "medium",
+      "question": "一个APP账户最多能绑几台设备？",
+      "ground_truth": {
+        "required": ["3"],
+        "forbidden": ["1", "5", "10"]
+      },
+      "initial_skill_handles": false,
+      "note": "单账户最多绑定3台设备"
+    },
+    {
+      "id": 40,
+      "category": "app_connection",
+      "difficulty": "hard",
+      "question": "一台设备能绑几个APP账户？",
+      "ground_truth": {
+        "required": ["1"],
+        "forbidden": ["3", "5"]
+      },
+      "initial_skill_handles": false,
+      "note": "单台设备仅可绑定1个APP账户"
+    },
+    {
+      "id": 41,
+      "category": "app_connection",
+      "difficulty": "hard",
+      "question": "家庭共享功能最多能创建几个家庭成员子档案？",
+      "ground_truth": {
+        "required": ["5"],
+        "forbidden": ["3", "10"]
+      },
+      "initial_skill_handles": false,
+      "note": "主账户最多为5名家庭成员创建子档案"
+    },
+    {
+      "id": 42,
+      "category": "app_connection",
+      "difficulty": "medium",
+      "question": "蓝牙版本是多少？",
+      "ground_truth": {
+        "required": ["5.0"],
+        "forbidden": ["4.0", "4.2"]
+      },
+      "initial_skill_handles": false,
+      "note": "蓝牙5.0"
+    },
+    {
+      "id": 43,
+      "category": "app_connection",
+      "difficulty": "medium",
+      "question": "账户注销后数据保留多久才永久删除？",
+      "ground_truth": {
+        "required": ["30天"],
+        "forbidden": ["7天", "15天", "60天"]
+      },
+      "initial_skill_handles": false,
+      "note": "注销后数据保留30天后永久删除"
+    },
+    {
+      "id": 44,
+      "category": "app_connection",
+      "difficulty": "medium",
+      "question": "APP支持导出什么格式的健康报告？",
+      "ground_truth": {
+        "required": ["PDF", "CSV"],
+        "forbidden": []
+      },
+      "initial_skill_handles": false,
+      "note": "支持导出PDF/CSV格式"
+    },
+    {
+      "id": 45,
+      "category": "app_connection",
+      "difficulty": "hard",
+      "question": "注册APP账户密码长度有什么要求？",
+      "ground_truth": {
+        "required": ["8", "20"],
+        "forbidden": ["6", "16"]
+      },
+      "initial_skill_handles": false,
+      "note": "密码长度8-20位"
+    },
+    {
+      "id": 46,
+      "category": "app_connection",
+      "difficulty": "medium",
+      "question": "设备端最多存多少组数据后会循环覆盖？",
+      "ground_truth": {
+        "required": ["90"],
+        "forbidden": ["60", "120"]
+      },
+      "initial_skill_handles": false,
+      "note": "设备端最多存90组后循环覆盖，APP永久保存"
+    },
+    {
+      "id": 47,
+      "category": "abnormal_readings",
+      "difficulty": "medium",
+      "question": "1级高血压的收缩压范围是多少？",
+      "ground_truth": {
+        "required": ["140", "159"],
+        "forbidden": ["160", "120"]
+      },
+      "initial_skill_handles": false,
+      "note": "1级高血压收缩压140-159"
+    },
+    {
+      "id": 48,
+      "category": "abnormal_readings",
+      "difficulty": "medium",
+      "question": "3级高血压的收缩压是多少以上？",
+      "ground_truth": {
+        "required": ["180"],
+        "forbidden": ["160", "140"]
+      },
+      "initial_skill_handles": false,
+      "note": "3级高血压收缩压≥180"
+    },
+    {
+      "id": 49,
+      "category": "abnormal_readings",
+      "difficulty": "hard",
+      "question": "血压到多少APP会弹出紧急就医提醒？",
+      "ground_truth": {
+        "required": ["180", "110"],
+        "forbidden": ["140", "90"]
+      },
+      "initial_skill_handles": false,
+      "note": "收缩压≥180或舒张压≥110弹出紧急提醒"
+    },
+    {
+      "id": 50,
+      "category": "abnormal_readings",
+      "difficulty": "hard",
+      "question": "量了一次偏高就是高血压了吗？",
+      "ground_truth": {
+        "required": ["3次"],
+        "forbidden": ["1次就", "一次就"]
+      },
+      "initial_skill_handles": false,
+      "note": "需不同日3次测量均超标方可确诊"
+    },
+    {
+      "id": 51,
+      "category": "abnormal_readings",
+      "difficulty": "easy",
+      "question": "低血压的标准是什么？",
+      "ground_truth": {
+        "required": ["90", "60"],
+        "forbidden": ["100", "70"]
+      },
+      "initial_skill_handles": false,
+      "note": "收缩压<90或舒张压<60为低血压"
+    },
+    {
+      "id": 52,
+      "category": "abnormal_readings",
+      "difficulty": "medium",
+      "question": "心率超过多少会标注心动过速？",
+      "ground_truth": {
+        "required": ["100"],
+        "forbidden": ["80", "120"]
+      },
+      "initial_skill_handles": false,
+      "note": "心率>100标注心动过速"
+    },
+    {
+      "id": 53,
+      "category": "abnormal_readings",
+      "difficulty": "hard",
+      "question": "心率到多少APP会弹出建议立即就医的提醒？",
+      "ground_truth": {
+        "required": ["160", "40"],
+        "forbidden": ["100", "60"]
+      },
+      "initial_skill_handles": false,
+      "note": "心率>160或<40弹出立即就医提醒"
+    },
+    {
+      "id": 54,
+      "category": "abnormal_readings",
+      "difficulty": "hard",
+      "question": "血压持续偏高，建议多久内就医？",
+      "ground_truth": {
+        "required": ["48"],
+        "forbidden": ["24", "72", "一周"]
+      },
+      "initial_skill_handles": false,
+      "note": "连续3天偏高建议48小时内就医"
+    },
+    {
+      "id": 55,
+      "category": "after_sales_warranty",
+      "difficulty": "easy",
+      "question": "整机保修期是多久？",
+      "ground_truth": {
+        "required": ["2年"],
+        "forbidden": ["1年", "3年"]
+      },
+      "initial_skill_handles": true,
+      "note": "整机保修2年"
+    },
+    {
+      "id": 56,
+      "category": "after_sales_warranty",
+      "difficulty": "medium",
+      "question": "电池的保修期是多久？",
+      "ground_truth": {
+        "required": ["1年"],
+        "forbidden": ["2年", "6个月"]
+      },
+      "initial_skill_handles": false,
+      "note": "电池保修1年，属消耗品"
+    },
+    {
+      "id": 57,
+      "category": "after_sales_warranty",
+      "difficulty": "medium",
+      "question": "袖带的保修期是多久？",
+      "ground_truth": {
+        "required": ["6个月"],
+        "forbidden": ["1年", "2年"]
+      },
+      "initial_skill_handles": false,
+      "note": "袖带保修6个月"
+    },
+    {
+      "id": 58,
+      "category": "after_sales_warranty",
+      "difficulty": "hard",
+      "question": "我已经拆开用了，还能7天无理由退货吗？",
+      "ground_truth": {
+        "_note": "required:不支持，forbidden:可以退/7天无理由",
+        "required": ["不支持"],
+        "forbidden": ["可以退", "7天无理由"]
+      },
+      "initial_skill_handles": false,
+      "note": "医疗器械已拆封不支持7天无理由退货"
+    },
+    {
+      "id": 59,
+      "category": "after_sales_warranty",
+      "difficulty": "hard",
+      "question": "保修期外维修要收检测费吗？多少钱？",
+      "ground_truth": {
+        "required": ["30"],
+        "forbidden": ["免费", "50"]
+      },
+      "initial_skill_handles": false,
+      "note": "保修期外检测费30元，50元是校准费"
+    },
+    {
+      "id": 60,
+      "category": "after_sales_warranty",
+      "difficulty": "medium",
+      "question": "VIP会员买血压计能享受退货延长特权吗？",
+      "ground_truth": {
+        "required": ["不"],
+        "forbidden": ["可以延长", "享有"]
+      },
+      "initial_skill_handles": false,
+      "note": "医疗器械VIP不享有退货延长特权"
+    }
+  ]
+}

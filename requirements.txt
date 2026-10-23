@@ -1,0 +1,14 @@
+openai>=1.0.0
+uvicorn>=0.23.0
+fastapi>=0.100.0
+
+# ── 可选依赖（按需安装，缺失时自动降级） ─────────────────────────────
+# 1. 本地语义嵌入模型（设置 BP_EMBED_MODEL_DIR 指向模型目录后启用）
+# sentence-transformers>=2.3
+
+# 2. Milvus 向量库（设置 MILVUS_URI 后启用 Dense ANN 检索）
+# pymilvus>=2.4
+
+# 3. Celery 异步任务（设置 TASK_BACKEND=celery，需 Redis broker）
+# celery>=5.3
+# redis>=5.0

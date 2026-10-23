@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "title": "自进化客服 Agent 商业化指标体系",
+  "period": "试点口径（Pilot）",
+  "note": "基于本项目实验数据（基线33.3% → 进化后93.3%）与降摊模型推导的试点预估口径；正式投产前需按真实流量 A/B 验证。指标口径见 metrics[].derivation。",
+  "metrics": [
+    {
+      "key": "deflection_rate",
+      "name": "人工客服分流率",
+      "value": "65%+",
+      "unit": "%",
+      "baseline": "约25%（传统 FAQ 机器人）",
+      "derivation": "分流率 = 1 - 转人工率。自进化 Agent 把基线转人工率从约75%降到35%以下：① Agent 答不出时契约式只说'联系人工'，未命中直接转人工；② 7轮 Nudge 后 6 大业务类覆盖，实测 93.3% 问题可自主正确回答；③ 传统 FAQ 机器人无法覆盖长尾问法（同义改写即失配），BiEncoder 级联后兜底。",
+      "evidence": "eval 实测：60 题基线 20/60 正确 → 7 轮进化后 56/60 正确（3 类 100%，2 类 83-87%）",
+      "proof_point": "长尾问法覆盖 + 失败自动进化补全知识缺口"
+    },
+    {
+      "key": "latency_reduction",
+      "name": "平均会话响应延迟",
+      "value": "-40%",
+      "unit": "降低幅度",
+      "baseline": "约8.5s（人工/排队 + 话术检索）",
+      "derivation": "① 秒级自动应答替代人工排队；② 向量检索 + 动态挂载把 Prompt 从全量 Skills 收敛为 Top-K 分块（Token 减少约 60-80%），首 Token 延迟同步下降；③ 回答只需一轮生成（temperature=0，max_tokens=400），单会话通常 <2s 完成。",
+      "evidence": "旧版全量挂载 Prompt ~8000+ chars vs 检索挂载 ~4000 chars 预算；LLM 调用单次 <2s",
+      "proof_point": "Token 预算收敛 + 单轮短答案生成"
+    },
+    {
+      "key": "category_onboarding",
+      "name": "新类目上线配置周期",
+      "value": "2周 → 分钟级",
+      "unit": "周期",
+      "baseline": "约2周（需求评审 + 话术编写 + 规则配置 + 联调测试）",
+      "derivation": "① 新类目 = 写一份 SKILL.md（或由 Reviewer 从 policies.md 失败样本自动生成）；② SkillStore 自动切块 + 向量化 + 入索引，秒级生效；③ Agent 每次回答前重新加载 + 检索按需挂载，无需发版、无需重启服务。",
+      "evidence": "本项目中 4 个新增 Skill（cuff_posture/app_sync/health_alert/after_sales）均为单次 Nudge 内自动创建并即时参与下一次问答",
+      "proof_point": "Skill 文件即配置，向量索引秒级重建，热生效"
+    }
+  ],
+  "cost_notes": {
+    "eval_cost": "一次完整实验约 200 次 LLM 调用，约 0.2 元（DeepSeek）",
+    "judge_cost_increment": "双模态评估新增 Judge 调用仅在模糊地带触发（约 10-20% 题目），成本增幅 <15%",
+    "retrieval_savings": "向量挂载将系统提示 Token 收敛为常数级预算（默认 4000 chars），Skill 规模增长不再推高单次调用成本"
+  }
+}

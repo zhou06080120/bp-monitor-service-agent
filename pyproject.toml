@@ -1,0 +1,93 @@
+# ═════════════════════════════════════════════════════════════════
+# 项目元数据与工具链配置（企业级工程化基座）
+#
+# 安装方式：
+#   pip install -e .            # 核心依赖（FastAPI 服务）
+#   pip install -e ".[dev]"     # + 测试/静态检查工具链
+#   pip install -e ".[milvus]"  # + Milvus 向量库后端
+#   pip install -e ".[celery]"  # + Celery 异步任务后端
+#   pip install -e ".[st]"      # + 本地 sentence-transformers 嵌入
+#
+# 说明：本项目是应用而非库，[tool.setuptools] py-modules = []
+# 表示"虚包安装"——只落地依赖，不打包 src/（应用代码由容器/仓库直接运行）。
+# ═════════════════════════════════════════════════════════════════
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bp-monitor-service-agent"
+version = "3.1.0"
+description = "血压计客服 Agent 服务：LLM-as-a-Judge 评估 + Skill 自进化 + 混合向量检索 + 异步任务架构"
+readme = "RESUME_GUIDE.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+dependencies = [
+    "openai>=1.0.0",
+    "uvicorn>=0.23.0",
+    "fastapi>=0.100.0",
+]
+
+[project.optional-dependencies]
+# 向量库规模化后端（MILVUS_URI / MILVUS_ENABLED=1 时启用）
+milvus = ["pymilvus>=2.4"]
+# Celery 异步任务（TASK_BACKEND=celery 时启用，需 Redis）
+celery = ["celery>=5.3", "redis>=5.0"]
+# 本地语义嵌入（BP_EMBED_MODEL_DIR 指向模型目录后启用）
+st = ["sentence-transformers>=2.3"]
+# 开发/CI 工具链
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "httpx>=0.24",     # FastAPI TestClient 依赖
+    "ruff>=0.4",
+]
+
+[tool.setuptools]
+# 虚包模式：不打包任何模块，仅以本文件为依赖的唯一事实来源
+py-modules = []
+
+# ── pytest ─────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+# 复刻 serve.py 的 sys.path 约定：src 内模块按顶级名导入
+pythonpath = ["src", "."]
+addopts = "-q --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+# ── coverage ───────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["src", "serve"]
+# 外部依赖重/需要真实环境的模块不计入分母（CLI 脚本与 Celery 入口由集成环境覆盖）
+omit = [
+    "src/celery_app.py",
+    "src/demo_runner.py",
+    "scripts/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+precision = 1
+
+# ── ruff ───────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = [".venv", "outputs", "node_modules"]
+
+[tool.ruff.lint]
+# 默认规则集（E4/E7/E9 + pyflakes F）：能过且不与现有代码风格冲突
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# 以下文件必须先 sys.path.insert 再导入 src 模块（架构约定）
+"serve.py" = ["E402"]
+"src/celery_app.py" = ["E402"]
+"src/demo_runner.py" = ["E402"]
+"src/rule_eval_with_review.py" = ["E402"]
+# pipeline.py：状态锁在 import threading 前先占位赋值（线程安全初始化约定）
+"src/pipeline.py" = ["E402"]

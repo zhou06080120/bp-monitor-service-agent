@@ -1,0 +1,31 @@
+# 版本控制与本地环境
+.git
+.gitignore
+.idea
+.vscode
+.venv
+venv
+
+# Python 构建产物
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+build
+dist
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# 测试与 CI（运行时不需要）
+tests
+.github
+
+# 运行时状态（由卷挂载持久化，不打进镜像）
+outputs
+
+# 文档与临时文件
+RESUME_GUIDE.md
+*.log
+*.tmp

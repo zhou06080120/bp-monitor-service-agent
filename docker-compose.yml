@@ -1,0 +1,99 @@
+# ═════════════════════════════════════════════════════════════════
+# 本地一键拉起全套环境（默认零依赖形态，增强组件按 profile 启用）
+#
+#   docker compose up -d                          # API 服务（hash 嵌入 + 进程内队列）
+#   docker compose --profile celery up -d         # + Redis + 独立 Celery Worker
+#   docker compose --profile milvus up -d         # + Milvus 向量库（Dense ANN）
+#   docker compose --profile celery --profile milvus up -d   # 全量形态
+#
+# 说明：api 与 worker 共享 outputs/ 与 skills/ 卷——Worker 写事件日志
+#       (outputs/jobs/*.jsonl)，API 的 SSE 端点读同一份；Skill 进化
+#       双进程实时可见。
+# ═════════════════════════════════════════════════════════════════
+
+services:
+  # ── Web API（SSE 推流 + 任务提交） ─────────────────────────────────
+  api:
+    build: .
+    image: bp-monitor-service-agent:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # 零依赖降级链：未配置的可选项自动落到 hash / inprocess / local
+      EMBED_PROVIDER: ${EMBED_PROVIDER:-hash}
+      TASK_BACKEND: ${TASK_BACKEND:-inprocess}
+      MILVUS_ENABLED: ${MILVUS_ENABLED:-0}
+      MILVUS_URI: ${MILVUS_URI:-}
+      # LLM（Agent / Reviewer / Judge）——配置后自动升级为混合评估模式
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      JUDGE_API_KEY: ${JUDGE_API_KEY:-}
+      EVAL_MODE: ${EVAL_MODE:-auto}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-60}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
+      # Celery 后端（profile celery 启用时覆盖为 celery）
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+    volumes:
+      - ./outputs:/app/outputs    # 实验状态/版本历史/任务事件日志
+      - ./skills:/app/skills     # Skill 进化产物（可审计、可回滚）
+      - ./data:/app/data:ro      # 评估集/政策文档（只读）
+    restart: unless-stopped
+
+  # ── Redis（Celery broker + result backend） ──────────────────────
+  redis:
+    image: redis:7-alpine
+    profiles: [celery]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Celery Worker（评估/进化闭环在独立进程执行） ───────────────────
+  worker:
+    image: bp-monitor-service-agent:latest
+    build: .
+    command: celery -A src.celery_app worker --loglevel=info --pool=solo
+    environment:
+      TASK_BACKEND: celery
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      EMBED_PROVIDER: ${EMBED_PROVIDER:-hash}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      JUDGE_API_KEY: ${JUDGE_API_KEY:-}
+      EVAL_MODE: ${EVAL_MODE:-auto}
+    volumes:
+      - ./outputs:/app/outputs    # 与 api 共享：SSE 轮询 Worker 写的事件日志
+      - ./skills:/app/skills
+      - ./data:/app/data:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles: [celery]
+    restart: unless-stopped
+
+  # ── Milvus 向量库（规模化 Dense ANN 检索） ────────────────────────
+  milvus:
+    image: milvusdb/milvus:v2.4.9
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embeddedEtcd.yaml
+      COMMON_STORAGETYPE: local
+    volumes:
+      - milvus_data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+    profiles: [milvus]
+    restart: unless-stopped
+
+volumes:
+  milvus_data:
