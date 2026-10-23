@@ -16,9 +16,13 @@
 import os  # 读取 DEEPSEEK_API_KEY 等环境变量
 import json  # 解析 Reviewer 输出的结构化 JSON 动作
 import re  # 从回复中提取 JSON 串；抽取 Skill frontmatter 的 description
+import logging  # 标准日志框架（print → logger 改造后的统一出口）
 from openai import OpenAI  # OpenAI 兼容 SDK 调 DeepSeek
 from pathlib import Path  # 读取完整政策文档 policies.md
 from skill_manager import SkillManager  # 读取当前 Skill（供 Reviewer 参考，避免重复建）
+from observability import llm_call_timer  # LLM 调用统一埋点（llm_calls_total / llm_call_duration_seconds）
+
+logger = logging.getLogger(__name__)  # 模块 logger（经 setup_logging 统一格式化输出）
 
 
 # Reviewer 系统提示词（三引号字符串内部不可插注释）：定义"技能优化专家"角色、
@@ -127,15 +131,17 @@ class BackgroundReviewer:
             current_skills_full=skills_full,  # 当前技能全文（patch 定位 old_text 用）
         )
 
-        response = self.client.chat.completions.create(  # 调用 DeepSeek 生成修复方案
-            model=self.model,  # 复盘模型
-            messages=[
-                {"role": "system", "content": system_msg},  # 角色+原则+政策+技能概览
-                {"role": "user", "content": user_msg},  # 失败样本+技能全文
-            ],
-            temperature=0,  # 零温度：输出稳定可复现
-            max_tokens=3000,  # 动作里含完整 SKILL.md 内容，放宽到 3000
-        )
+        # 调用 DeepSeek 生成修复方案；llm_call_timer 统一埋点（成败计数 + 耗时观测）
+        with llm_call_timer():
+            response = self.client.chat.completions.create(
+                model=self.model,  # 复盘模型
+                messages=[
+                    {"role": "system", "content": system_msg},  # 角色+原则+政策+技能概览
+                    {"role": "user", "content": user_msg},  # 失败样本+技能全文
+                ],
+                temperature=0,  # 零温度：输出稳定可复现
+                max_tokens=3000,  # 动作里含完整 SKILL.md 内容，放宽到 3000
+            )
         return self._parse_actions(response.choices[0].message.content.strip())  # 解析回复为动作列表
 
     # ═══════════════════════════════════════════════════════════
@@ -163,14 +169,14 @@ class BackgroundReviewer:
         try:
             json_match = re.search(r"\{.*\}", raw, re.DOTALL)  # 贪心提取首个 {...}（跨行；容忍模型多余废话）
             if not json_match:  # 连 JSON 形状都没有
-                print(f"  [Reviewer] 无法提取 JSON，原始输出：{raw[:200]}")  # 打印原始输出前 200 字排查
+                logger.warning(f"[Reviewer] 无法提取 JSON，原始输出：{raw[:200]}")  # 记录原始输出前 200 字排查
                 self.last_analysis = ""  # 清空分析文本
                 return []  # 返回空动作
             data = json.loads(json_match.group())  # 解析 JSON
             self.last_analysis = data.get("analysis", "")  # 保存分析文本（UI 进化日志展示）
-            print(f"  [Reviewer] 分析：{self.last_analysis[:100]}")  # 打印分析摘要
+            logger.info(f"[Reviewer] 分析：{self.last_analysis[:100]}")  # 记录分析摘要
             return data.get("actions", [])  # 返回动作列表（可能为空=本轮不进化）
         except json.JSONDecodeError as e:  # JSON 损坏
-            print(f"  [Reviewer] JSON 解析失败: {e}\n原始: {raw[:300]}")  # 打印错误与原文前 300 字
+            logger.warning(f"[Reviewer] JSON 解析失败: {e}\n原始: {raw[:300]}")  # 记录错误与原文前 300 字
             self.last_analysis = ""  # 清空分析文本
             return []  # 安全返回空动作

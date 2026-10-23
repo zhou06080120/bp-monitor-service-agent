@@ -43,6 +43,59 @@ docker compose --profile milvus up -d         # + Milvus 向量库
 - **优雅关停**：应用退出时向后台 Worker 投递停机哨兵，在跑任务执行完毕后线程才退出（超时不强杀）
 - **LLM 韧性**：全部 LLM 调用自带超时（`LLM_TIMEOUT`）与重试（`LLM_MAX_RETRIES`），上游抖动不拖垮请求
 
+## 可观测性
+
+结构化日志 + Prometheus 指标（`src/observability.py`），Docker / Loki / Grafana 开箱可采：
+
+**指标表**（`GET /metrics`，Prometheus 文本协议；`/metrics` 与 `/health` 限流豁免）：
+
+| 指标名 | 类型 | 标签 | 含义 |
+| --- | --- | --- | --- |
+| `http_requests_total` | Counter | method / path / status | HTTP 请求总数（path 取路由模板如 `/job/{job_id}` 防标签基数爆炸，未匹配路由记 `unmatched`） |
+| `http_request_duration_seconds` | Histogram | path | HTTP 请求延迟（桶覆盖 5ms~10s） |
+| `rate_limit_rejected_total` | Counter | — | 限流拒绝（HTTP 429）总数，可直接接告警 |
+| `llm_calls_total` | Counter | status=ok/error | LLM 调用成败计数（Agent / Judge / Reviewer 全部经 `llm_call_timer()` 统一埋点） |
+| `llm_call_duration_seconds` | Histogram | — | LLM 调用耗时（桶覆盖 0.1s~60s） |
+| `python_gc_*` / `python_info` / `process_*` | — | — | prometheus_client 默认注入的解释器 / 进程运行时指标 |
+
+**X-Request-ID 机制**：最外层中间件为每个请求生成 12 位十六进制 ID（或透传客户端带来的），回写响应头，并经 contextvars 注入本请求内所有日志行——一次请求的访问日志、后台任务日志、异常堆栈可用同一个 ID 串联对账。注意中间件注册顺序：可观测层在限流层**之后**注册（FastAPI 后注册者在外层），限流器返回的 429 才会被统计进指标。
+
+**JSON 日志**（默认一行一条，真实样例）：
+
+```json
+{"ts": "2026-10-23T15:31:19", "level": "INFO", "logger": "serve", "msg": "[serve] 组件就绪: eval_mode=rule, embedder=hash, vector_backend=local, task_backend=inprocess", "request_id": "a1b2c3d4e5f6", "eval_mode": "rule", "embedder": "hash", "vector_backend": "local", "task_backend": "inprocess"}
+```
+
+`logger.info(..., extra={"job_id": ...})` 的业务字段会原样并入 JSON 行。本地开发可切人读格式与级别：
+
+```bash
+BP_LOG_FORMAT=text BP_LOG_LEVEL=DEBUG uvicorn serve:app   # text=单行文本（默认 json），级别默认 INFO
+curl localhost:8000/metrics                               # 抓取指标（限流豁免）
+curl -H "X-Request-ID: abc123" localhost:8000/health      # 响应头原样回传该 ID
+```
+
+## 评估门禁
+
+lint/test 只能证明"代码没坏"，无法证明"评估器还判得对"。离线评估门禁在 Docker 构建前加一道语义闸门，防止改动评估器规则 / Skill 结构导致判分能力静默回退：
+
+- **`evals/gate.py`**：三类检查——① 结构校验（每个技能目录 `SKILL.md` 存在且非空；`EventLog` 临时目录写 3 条事件读回，seq 严格递增 / ts-type 齐全 / JSONL 可解析）② 判别力校验（`golden_pairs.json` 12 对金标逐对离线打分）③ `/metrics` 冒烟。任一项 FAIL 退出码 1
+- **`evals/golden_pairs.json`**：6 对好答案（含关键事实，应通过）+ 6 对坏答案（推脱 / 无关 / 错误事实，应拦截），覆盖全部 6 个类目
+- **`evals/thresholds.json`**：判别力阈值（实测值留安全余量，任一实测低于阈值即门禁失败）
+- **CI**：test 与 docker 之间新增 `eval-gate` job，docker 构建 `needs: [lint, test, eval-gate]`——门禁失败阻断镜像构建
+
+实测数字（2026-10 本地离线运行，`EVAL_MODE=rule`，零 LLM 成本）：
+
+| 指标 | 实测 | 阈值 |
+| --- | --- | --- |
+| good_pass_rate（好答案被判通过） | 6/6 = 1.00 | ≥ 0.9 |
+| bad_block_rate（坏答案被判拦截） | 6/6 = 1.00 | ≥ 0.9 |
+
+本地运行（无 API Key、无外部服务、不改动 outputs/ 现场）：
+
+```bash
+python evals/gate.py   # 全部 PASS 退出码 0；任一 FAIL 退出码 1
+```
+
 ## CI / CD
 
 每次 push 与 PR 自动执行三段质检（见 [ci.yml](.github/workflows/ci.yml)）：

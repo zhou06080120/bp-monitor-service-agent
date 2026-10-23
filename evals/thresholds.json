@@ -1,0 +1,5 @@
+{
+  "_comment": "离线评估门禁阈值：measured 为 gate.py 真实运行的实测值（2026-10 本地离线运行，EVAL_MODE=rule），threshold 在实测值上留安全余量（实测 1.0 → 写 0.9）。任一实测值低于 threshold 时门禁 FAIL（exit 1）。阈值更新流程：改评估器/规则后重跑 gate.py，按新实测值回写并留余量，禁止凭空编造。",
+  "good_pass_rate": {"measured": 1.0, "threshold": 0.9},
+  "bad_block_rate": {"measured": 1.0, "threshold": 0.9}
+}

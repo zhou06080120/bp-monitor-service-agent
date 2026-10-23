@@ -20,6 +20,7 @@ import os  # 读取 Judge 专属配置环境变量（JUDGE_API_BASE/KEY/MODEL）
 import json  # 解析 JSON Mode 返回的裁决对象
 import re  # 从原始回复中兜底提取 JSON 字符串（防模型偶尔不守格式）
 from openai import OpenAI  # OpenAI 兼容 SDK：Judge 模型同样走兼容协议调用
+from observability import llm_call_timer  # LLM 调用统一埋点（llm_calls_total / llm_call_duration_seconds）
 
 # Judge 系统提示词（三引号字符串内部不可插注释）：定义质检员角色、
 # 判定四条标准（正确/完整/禁止项/推脱即 fail）与固定 JSON 输出格式
@@ -79,17 +80,19 @@ class LLMJudge:
         if self.client is None:  # 未配置任何 API Key
             raise RuntimeError("Judge 未配置 API Key（JUDGE_API_KEY / DEEPSEEK_API_KEY）")  # 显式报错，让调用方降级
         gt_text = self._format_ground_truth(ground_truth)  # 把 required/forbidden/note 渲染成 Judge 可读文本
-        resp = self.client.chat.completions.create(  # 调用 Judge 模型
-            model=self.model,  # 裁决模型
-            messages=[
-                {"role": "system", "content": JUDGE_SYSTEM},  # 系统提示：质检员角色 + 判定标准 + JSON 格式
-                {"role": "user", "content": JUDGE_USER.format(  # 用户消息：填入问题/标准要点/回答三元组
-                    question=question, ground_truth=gt_text, answer=answer[:800])},  # 回答截断 800 字控制成本
-            ],
-            temperature=0,  # 零温度：同一输入稳定输出
-            max_tokens=300,  # 裁决结论很短，限 300 token 足够
-            response_format={"type": "json_object"},   # JSON Mode：保证输出是合法 JSON
-        )
+        # 调用 Judge 模型；llm_call_timer 统一埋点（成败计数 + 耗时观测）
+        with llm_call_timer():
+            resp = self.client.chat.completions.create(
+                model=self.model,  # 裁决模型
+                messages=[
+                    {"role": "system", "content": JUDGE_SYSTEM},  # 系统提示：质检员角色 + 判定标准 + JSON 格式
+                    {"role": "user", "content": JUDGE_USER.format(  # 用户消息：填入问题/标准要点/回答三元组
+                        question=question, ground_truth=gt_text, answer=answer[:800])},  # 回答截断 800 字控制成本
+                ],
+                temperature=0,  # 零温度：同一输入稳定输出
+                max_tokens=300,  # 裁决结论很短，限 300 token 足够
+                response_format={"type": "json_object"},   # JSON Mode：保证输出是合法 JSON
+            )
         self.call_count += 1  # 调用计数 +1
         return self._parse(resp.choices[0].message.content.strip())  # 解析回复为标准裁决结构
 
@@ -108,17 +111,19 @@ class LLMJudge:
         gt_text = self._format_ground_truth(ground_truth)  # 渲染标准要点文本
         votes = []  # 收集 n 次独立裁决
         for _ in range(n):  # 采样 n 次
-            resp = self.client.chat.completions.create(  # 每次独立调用 Judge 模型
-                model=self.model,  # 裁决模型
-                messages=[
-                    {"role": "system", "content": JUDGE_SYSTEM},  # 同一套系统提示
-                    {"role": "user", "content": JUDGE_USER.format(  # 同一组三元组
-                        question=question, ground_truth=gt_text, answer=answer[:800])},  # 回答同样截断
-                ],
-                temperature=temperature,  # 温度>0 引入采样多样性（这是投票有意义的前提）
-                max_tokens=300,  # 限长
-                response_format={"type": "json_object"},  # JSON Mode
-            )
+            # 每次独立调用 Judge 模型；llm_call_timer 统一埋点（成败计数 + 耗时观测）
+            with llm_call_timer():
+                resp = self.client.chat.completions.create(
+                    model=self.model,  # 裁决模型
+                    messages=[
+                        {"role": "system", "content": JUDGE_SYSTEM},  # 同一套系统提示
+                        {"role": "user", "content": JUDGE_USER.format(  # 同一组三元组
+                            question=question, ground_truth=gt_text, answer=answer[:800])},  # 回答同样截断
+                    ],
+                    temperature=temperature,  # 温度>0 引入采样多样性（这是投票有意义的前提）
+                    max_tokens=300,  # 限长
+                    response_format={"type": "json_object"},  # JSON Mode
+                )
             votes.append(self._parse(resp.choices[0].message.content.strip()))  # 解析并收集该票
         self.call_count += n  # 调用计数加 n
         n_pass = sum(1 for v in votes if v["verdict"] == "pass")  # 统计 pass 票数

@@ -5,7 +5,7 @@
   - 零第三方依赖：纯标准库实现（不引入 slowapi 等新依赖）
   - 滑动窗口日志算法：每 IP 维护请求时间戳队列，无固定窗口边界突刺问题
   - 环境变量 RATE_LIMIT_RPM 控制每分钟允许的请求数（默认 60；设 0 关闭限流）
-  - /health 探针端点豁免（监控探针不应被限流）
+  - /health 与 /metrics 探针端点豁免（监控/指标抓取不应被限流）
   - 内存自愈：跟踪 IP 超过上限时清理已过期空队列，防慢速扫描撑爆内存
 
 注意：生产部署在反向代理（Nginx）后所有请求直连 IP 相同，需在代理层
@@ -19,7 +19,7 @@ import threading  # 保护并发计数的锁
 from collections import defaultdict, deque  # ip → 时间戳队列
 
 DEFAULT_RPM = 60          # 默认限流阈值：每分钟 60 次请求（环境变量可覆盖）
-EXEMPT_PATHS = {"/health"}  # 限流豁免路径：健康检查等探针端点
+EXEMPT_PATHS = {"/health", "/metrics"}  # 限流豁免路径：健康检查/Prometheus 抓取等探针端点
 MAX_TRACKED_IPS = 10000   # IP 跟踪表规模上限（超过即触发过期清理）
 
 

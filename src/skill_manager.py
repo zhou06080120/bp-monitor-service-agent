@@ -13,8 +13,11 @@ Skill 管理器：负责 Skill 文件的读取、创建、局部修改和版本�
 
 import re  # patch 时把 frontmatter 的 version 号 +1（正则替换）
 import json  # 版本历史 JSON 文件的读写
+import logging  # 标准日志框架（print → logger 改造后的统一出口）
 from pathlib import Path  # 技能目录/版本目录/快照目录的路径操作
 from datetime import datetime  # 每个版本条目记录变更时间
+
+logger = logging.getLogger(__name__)  # 模块 logger（经 setup_logging 统一格式化输出；进化日志走日志链路）
 
 
 # ═════════════════════════════════════════════════════════════════
@@ -63,11 +66,11 @@ class SkillManager:
         skill_dir.mkdir(parents=True, exist_ok=True)  # 创建目录（已存在也不报错）
         skill_file = skill_dir / "SKILL.md"  # 技能正文文件路径
         if skill_file.exists():  # 同名技能已存在（不该发生，防重复创建）
-            print(f"  [SkillManager] Skill '{skill_name}' 已存在，改用 patch")  # 提示应走 patch 语义
+            logger.warning(f"[SkillManager] Skill '{skill_name}' 已存在，改用 patch")  # 提示应走 patch 语义
             return False  # 创建失败
         skill_file.write_text(content, encoding="utf-8")  # 写入技能正文（此刻新知识正式上线）
         self._save_version(skill_name, content, action="create", reason=reason)  # 落一条 v1 历史（含变更原因）
-        print(f"  [SkillManager] ✓ 创建 Skill: {skill_name}")  # 打印创建成功日志（进化日志展示）
+        logger.info(f"[SkillManager] ✓ 创建 Skill: {skill_name}")  # 记录创建成功日志（进化日志展示）
         return True  # 成功
 
     def patch(self, skill_name: str, old_text: str, new_text: str, reason: str = "") -> bool:
@@ -78,17 +81,17 @@ class SkillManager:
         """
         skill_file = self.skills_dir / skill_name / "SKILL.md"  # 目标技能文件路径
         if not skill_file.exists():  # 技能不存在无法修补
-            print(f"  [SkillManager] ✗ Skill '{skill_name}' 不存在，无法 patch")  # 报错提示
+            logger.warning(f"[SkillManager] ✗ Skill '{skill_name}' 不存在，无法 patch")  # 报错提示
             return False  # 失败
         content = skill_file.read_text(encoding="utf-8")  # 读入当前全文
         if old_text not in content:  # Reviewer 给的目标文本找不到（可能已被改过）
-            print(f"  [SkillManager] ✗ 在 '{skill_name}' 中找不到目标文本")  # 报错提示
+            logger.warning(f"[SkillManager] ✗ 在 '{skill_name}' 中找不到目标文本")  # 报错提示
             return False  # 失败
         new_content = self._bump_version(content.replace(old_text, new_text, 1))  # 精确替换第一处命中，并把 frontmatter 版本号 +1
         skill_file.write_text(new_content, encoding="utf-8")  # 写回磁盘（修补即刻生效）
         self._save_version(skill_name, new_content, action="patch", reason=reason,
                            prev_content=content)  # 落历史：保留变更前全文（rollback 依据）
-        print(f"  [SkillManager] ✓ 更新 Skill: {skill_name} (reason: {reason[:50]}...)")  # 打印更新日志（含原因摘要）
+        logger.info(f"[SkillManager] ✓ 更新 Skill: {skill_name} (reason: {reason[:50]}...)")  # 记录更新日志（含原因摘要）
         return True  # 成功
 
     # ═══════════════════════════════════════════════════════════
@@ -104,7 +107,7 @@ class SkillManager:
         skill_file = skill_dir / "SKILL.md"  # 技能正文路径
         history = self.get_version_history(skill_name)  # 读取该技能完整历史
         if not history or not skill_file.exists():  # 无历史或文件不存在 → 无可回滚
-            print(f"  [SkillManager] ✗ 回退失败：Skill '{skill_name}' 不存在")  # 报错提示
+            logger.warning(f"[SkillManager] ✗ 回退失败：Skill '{skill_name}' 不存在")  # 报错提示
             return False  # 失败
 
         history_file = self.versions_dir / f"{skill_name}_history.json"  # 历史文件路径（后面要改写/删除）
@@ -120,7 +123,7 @@ class SkillManager:
             history_file.unlink(missing_ok=True)  # 删除历史 JSON（彻底抹掉该技能痕迹）
             for snap in self.snapshots_dir.glob(f"{skill_name}_v*.md"):  # 遍历该技能所有版本快照
                 snap.unlink(missing_ok=True)  # 逐一删除
-            print(f"  [SkillManager] ↩ 回滚（删除新建 Skill）: {skill_name}")  # 打印回滚日志
+            logger.info(f"[SkillManager] ↩ 回滚（删除新建 Skill）: {skill_name}")  # 记录回滚日志
             return True  # 成功
 
         # patch 回退：恢复到 patch 前内容（prev_content 在 patch 时落盘）
@@ -129,7 +132,7 @@ class SkillManager:
             if len(history) >= 2:  # 有上一版可退
                 prev_content = history[-2]["content"]  # 退到上一版内容
             else:  # 只有一条历史且无 prev_content → 无处可退
-                print(f"  [SkillManager] ✗ 回退失败：'{skill_name}' 缺变更前快照")  # 报错提示
+                logger.warning(f"[SkillManager] ✗ 回退失败：'{skill_name}' 缺变更前快照")  # 报错提示
                 return False  # 失败
         skill_file.write_text(prev_content, encoding="utf-8")  # 写回变更前全文（旧知识恢复生效）
         new_history = history[:-1]  # 历史弹出最近一条（版本数随之减一）
@@ -138,8 +141,8 @@ class SkillManager:
                                 encoding="utf-8")  # 改写历史文件（中文不转义、缩进 2）
         snap_file = self.snapshots_dir / f"{skill_name}_v{last.get('version', 1)}.md"  # 本次被回滚版本的快照文件
         snap_file.unlink(missing_ok=True)  # 删除该快照（目录里只留仍有效的版本）
-        print(f"  [SkillManager] ↩ 回滚 Skill: {skill_name} → v{len(new_history)} "
-              f"(reason: {reason[:60]})")  # 打印回滚摘要（目标版本 + 原因）
+        logger.info(f"[SkillManager] ↩ 回滚 Skill: {skill_name} → v{len(new_history)} "
+                    f"(reason: {reason[:60]})")  # 记录回滚摘要（目标版本 + 原因）
         return True  # 成功
 
     def get_version_history(self, skill_name: str) -> list[dict]:

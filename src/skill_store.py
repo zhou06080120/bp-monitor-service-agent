@@ -17,9 +17,12 @@ Skill 检索挂载层：把细粒度 Skill 规则向量化入库，按需召回 
 
 import re  # 标题正则分块 + frontmatter 提取
 import hashlib  # 生成分块稳定 ID（md5 截断），索引更新时可幂等覆盖
+import logging  # 标准日志框架（print → logger 改造后的统一出口）
 
 from embeddings import get_embedding_provider  # Dense 嵌入后端工厂（hash/local/api 三级降级）
 from vector_store import get_vector_store  # 向量库工厂（本地 or Milvus，Dense+BM25+RRF 混合检索）
+
+logger = logging.getLogger(__name__)  # 模块 logger（经 setup_logging 统一格式化输出）
 
 _HEADING_RE = re.compile(r"^(#{2,4})\s+(.+)$", re.MULTILINE)  # 匹配 2~4 级 Markdown 标题行（##/###/####）
 
@@ -95,8 +98,8 @@ class SkillStore:
             items = [{"id": c["id"], "text": c["text"], "meta": c["meta"], "vec": v}
                      for c, v in zip(self.chunks, vecs)]  # 分块与向量一一配对组装
         n = self.store.index(items)  # 写入向量库（本地/Milvus 统一接口），返回条数
-        print(f"  [SkillStore] 已索引 {n} 个规则分块（backend={self.store.backend}, "
-              f"embedder={self.embed.name}）")  # 打印索引摘要（后端与嵌入器名，便于确认运行形态）
+        logger.info(f"[SkillStore] 已索引 {n} 个规则分块（backend={self.store.backend}, "
+                    f"embedder={self.embed.name}）")  # 记录索引摘要（后端与嵌入器名，便于确认运行形态）
         return n  # 返回索引分块数
 
     def reindex_skill(self, skill_name: str, content: str, all_skills: dict[str, str]):

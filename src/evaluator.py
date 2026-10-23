@@ -26,11 +26,14 @@ evaluate_answer 保持 (bool, reason) 两元组签名以兼容旧调用方；
 import os  # 读取评估模式与各阈值的覆盖环境变量
 import json  # 加载评估集 JSON（60 题问答 + 判分要点）
 import re  # 归一化数字千位分隔符；forbidden 否定前置检测的文本扫描
+import logging  # 标准日志框架（print → logger 改造后的统一出口）
 from pathlib import Path  # 读取评估集文件
 from collections import defaultdict  # 分类统计的字典工厂（缺失键自动初始化）
 
 from embeddings import get_embedding_provider  # 语义层嵌入（三级降级后端）
 from llm_judge import LLMJudge  # 第三层：LLM 裁决器（JSON Mode + 多数投票）
+
+logger = logging.getLogger(__name__)  # 模块 logger（经 setup_logging 统一格式化输出）
 
 # ── 规则层常量 ───────────────────────────────────────────────────────────────
 
@@ -263,7 +266,7 @@ class Evaluator:
                                "question": q["question"][:40],  # 问题摘要
                                "detail": self.last_detail})  # 完整证据链（含 sim/judge）
                 if verbose:  # 详细模式
-                    print(f"  ✗ Q{qid} [{q['category']}] {reason}")  # 逐条打印失败信息
+                    logger.info(f"✗ Q{qid} [{q['category']}] {reason}")  # 逐条记录失败信息
         for cat in by_category.values():  # 计算各分类准确率
             cat["accuracy"] = round(cat["correct"] / cat["total"], 3)  # 3 位小数
         return {"total": total, "correct": correct,  # 汇总结果
@@ -272,14 +275,14 @@ class Evaluator:
 
     def print_report(self, result: dict, label: str = ""):
         header = f"=== 评估报告 {label} ===" if label else "=== 评估报告 ==="  # 报告标题（可带标签如 baseline/final）
-        print(f"\n{header}")  # 打印标题
-        print(f"总体准确率: {result['correct']}/{result['total']} = {result['accuracy']:.1%}")  # 打印总体准确率
-        print("\n分类准确率:")  # 分节标题
+        logger.info(header)  # 记录标题
+        logger.info(f"总体准确率: {result['correct']}/{result['total']} = {result['accuracy']:.1%}")  # 记录总体准确率
+        logger.info("分类准确率:")  # 分节标题
         for cat, stats in sorted(result["by_category"].items()):  # 按类目名排序输出
             bar = "█" * int(stats["accuracy"] * 20)  # 文本柱状图：精度×20 个方块
-            print(f"  {cat:<20} {stats['correct']:>2}/{stats['total']:>2}  {bar} {stats['accuracy']:.0%}")  # 对齐打印类目/对错数/柱图/百分比
-        print(f"\n评估器统计: {self.stats}")  # 打印三层评估的调用统计（Judge 用量等）
+            logger.info(f"  {cat:<20} {stats['correct']:>2}/{stats['total']:>2}  {bar} {stats['accuracy']:.0%}")  # 对齐记录类目/对错数/柱图/百分比
+        logger.info(f"评估器统计: {self.stats}")  # 记录三层评估的调用统计（Judge 用量等）
         if result.get("errors"):  # 有错误样本
-            print("\n错误样本（前5条）:")  # 分节标题
+            logger.info("错误样本（前5条）:")  # 分节标题
             for err in result["errors"][:5]:  # 只展示前 5 条
-                print(f"  Q{err['id']} {err['question']}... → {err['reason']}")  # 打印题号/问题摘要/判错理由
+                logger.info(f"  Q{err['id']} {err['question']}... → {err['reason']}")  # 记录题号/问题摘要/判错理由

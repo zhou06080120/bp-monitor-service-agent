@@ -19,6 +19,7 @@
 import sys
 import asyncio
 import shutil  # os/sys 预留；asyncio 事件循环与 to_thread；shutil 目录还原
+import logging  # 标准日志框架（print → logger 改造后的统一出口）
 from pathlib import Path  # 定位项目根目录与输出目录
 from contextlib import asynccontextmanager  # FastAPI lifespan 生命周期管理
 
@@ -31,8 +32,13 @@ sys.path.insert(0, str(ROOT / "src"))  # 让 src 内模块可按顶级名导入
 
 from task_queue import TaskManager  # 任务队列门面（inprocess/celery 可插拔）
 from rate_limit import install_rate_limit  # 请求限流中间件（RATE_LIMIT_RPM 控制，0=关闭）
+from observability import install_observability, setup_logging  # 可观测性：结构化日志 + 最外层指标中间件
 from pipeline import (SKILLS_DIR, SKILLS_ORIG, load_state, save_state,
                       get_components, _load_business_metrics)  # 复用流水线的路径/状态/组件/商业指标
+
+logger = logging.getLogger(__name__)  # 模块 logger（经 setup_logging 统一格式化输出）
+
+setup_logging()  # 初始化根日志器（默认 JSON 行式；BP_LOG_FORMAT=text 切人读格式）——须在组件构建前生效
 
 tm = TaskManager()  # 全局任务管理器（按 TASK_BACKEND 选择后端）
 _active_job: dict = {}   # task_key -> job_id（防重复提交；终态后自动清理）
@@ -84,20 +90,29 @@ async def lifespan(app: FastAPI):
     state = load_state()  # 读状态（可能已有历史）
     state.setdefault("phase", "idle")  # 无 phase 字段时补 idle
     save_state(state)  # 落盘
-    print(f"  [serve] 组件就绪: eval_mode={components['ev'].mode}, "
-          f"embedder={components['store'].embed.name}, "
-          f"vector_backend={components['store'].store.backend}, "
-          f"task_backend={tm.impl.backend}")  # 打印运行形态摘要（评估/嵌入/向量/任务后端）
+    logger.info(f"[serve] 组件就绪: eval_mode={components['ev'].mode}, "
+                f"embedder={components['store'].embed.name}, "
+                f"vector_backend={components['store'].store.backend}, "
+                f"task_backend={tm.impl.backend}",  # 运行形态摘要（评估/嵌入/向量/任务后端）
+                extra={"eval_mode": components["ev"].mode,  # 评估模式（rule/semantic/hybrid）
+                       "embedder": components["store"].embed.name,  # 嵌入器名
+                       "vector_backend": components["store"].store.backend,  # 向量后端
+                       "task_backend": tm.impl.backend})  # 任务后端
     yield  # 应用运行期（请求都在此后处理）
     try:  # 优雅关停：等待后台 Worker 完成在跑任务后退出（超时不强杀）
         tm.shutdown(timeout=10)  # 关停任务队列 Worker 线程
-        print("  [serve] 后台 Worker 已优雅退出")  # 记录关停完成
+        logger.info("[serve] 后台 Worker 已优雅退出")  # 记录关停完成
     except Exception as e:  # 关停异常不阻断进程退出
-        print(f"  [serve] Worker 关停异常（忽略）: {e}")  # 只告警，继续退出流程
+        logger.warning(f"[serve] Worker 关停异常（忽略）: {e}")  # 只告警，继续退出流程
 
 
 app = FastAPI(lifespan=lifespan)  # 创建 FastAPI 应用（挂生命周期）
 install_rate_limit(app)  # 注册按 IP 滑动窗口限流（RATE_LIMIT_RPM=0 时零开销关闭）
+# 顺序约定（关键）：可观测中间件必须在限流中间件**之后**注册——
+# FastAPI 后注册的 HTTP 中间件位于外层，这样限流器直接返回的 429 响应
+# 也会流经可观测中间件，被计入 http_requests_total{status="429"} 与
+# rate_limit_rejected_total（否则 429 会被内层短路，指标永远抓不到）
+install_observability(app)  # 注册最外层可观测中间件（X-Request-ID + 指标）与 /metrics 端点
 
 SSE_HEADERS = {  # SSE 响应头
     "Cache-Control": "no-cache",  # 禁缓存（事件必须实时）
@@ -224,6 +239,12 @@ async def stream_events(job_id: str, after_seq: int = 0):
 
 # ── 静态 / 状态接口 ───────────────────────────────────────────────────────────
 
+@app.get("/health", include_in_schema=False)  # 不进 OpenAPI 文档（运维探针端点）
+async def health():
+    """健康探针：容器/负载均衡存活检查（限流豁免，见 rate_limit.EXEMPT_PATHS）。"""
+    return JSONResponse({"status": "ok"})  # 静态存活应答（不触发组件加载，毫秒级返回）
+
+
 @app.get("/")
 async def index():
     """返回前端入口页面。"""
@@ -330,7 +351,7 @@ async def reset():
     try:
         _restore()  # 还原技能目录 + 清理输出目录
     except Exception as e:  # 还原过程异常
-        print(f"[reset] _restore warning: {e}")  # 只告警不中断（降级路径已在 _restore 内处理）
+        logger.warning(f"[reset] _restore warning: {e}")  # 只告警不中断（降级路径已在 _restore 内处理）
     state = {"phase": "idle", "current_block": 0, "nudge_count": 0,
              "eval_results": {}, "conv_history": []}  # 全新初始状态
     save_state(state)  # 落盘

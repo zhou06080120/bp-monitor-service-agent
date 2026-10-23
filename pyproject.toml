@@ -27,6 +27,7 @@ dependencies = [
     "openai>=1.0.0",
     "uvicorn>=0.23.0",
     "fastapi>=0.100.0",
+    "prometheus-client>=0.20",  # /metrics 指标暴露与 LLM/HTTP 埋点（src/observability.py）
 ]
 
 [project.optional-dependencies]
@@ -89,5 +90,7 @@ select = ["E4", "E7", "E9", "F"]
 "src/celery_app.py" = ["E402"]
 "src/demo_runner.py" = ["E402"]
 "src/rule_eval_with_review.py" = ["E402"]
+# gate.py 开头先强制离线环境变量（对齐 tests/conftest.py）再导入 src/serve 模块
+"evals/gate.py" = ["E402"]
 # pipeline.py：状态锁在 import threading 前先占位赋值（线程安全初始化约定）
 "src/pipeline.py" = ["E402"]

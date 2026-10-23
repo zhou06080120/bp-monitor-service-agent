@@ -1,0 +1,89 @@
+{
+  "_comment": "判别力金标对：qid 对应 data/eval_set.json 题号；expect_pass=true 为含关键事实的正确回答（应被判通过），expect_pass=false 为推脱/无关/错误事实的回答（应被判不通过）。取材风格与评估集 probe 样例一致，覆盖 6 个类目各 1 对好/坏。",
+  "pairs": [
+    {
+      "qid": 1,
+      "expect_pass": true,
+      "answer": "长按电源键3秒即可开机，屏幕亮起表示开机成功。",
+      "kind": "好答案：含 required 关键事实（3秒）",
+      "category": "device_basic"
+    },
+    {
+      "qid": 1,
+      "expect_pass": false,
+      "answer": "关于开机方式建议您联系人工客服咨询。",
+      "kind": "坏答案：推脱（硬红线，联系人工）",
+      "category": "device_basic"
+    },
+    {
+      "qid": 13,
+      "expect_pass": true,
+      "answer": "测量前需要静坐休息5分钟，保持情绪平稳。",
+      "kind": "好答案：含 required 关键事实（5分钟）",
+      "category": "measurement_reading"
+    },
+    {
+      "qid": 13,
+      "expect_pass": false,
+      "answer": "测量前需要静坐休息15分钟。",
+      "kind": "坏答案：错误事实（15分钟，命中 forbidden）",
+      "category": "measurement_reading"
+    },
+    {
+      "qid": 23,
+      "expect_pass": true,
+      "answer": "标准袖带适合22-32cm臂围的用户使用。",
+      "kind": "好答案：含 required 关键事实（22/32）",
+      "category": "cuff_positioning"
+    },
+    {
+      "qid": 23,
+      "expect_pass": false,
+      "answer": "袖带应该绑在与心脏同一高度的位置。",
+      "kind": "坏答案：无关回答（缺 22/32 关键事实）",
+      "category": "cuff_positioning"
+    },
+    {
+      "qid": 35,
+      "expect_pass": true,
+      "answer": "KP-200及以上型号支持蓝牙连接APP。",
+      "kind": "好答案：含 required 关键事实（KP-200）",
+      "category": "app_connection"
+    },
+    {
+      "qid": 35,
+      "expect_pass": false,
+      "answer": "KP-100型号可以连APP。",
+      "kind": "坏答案：错误事实（KP-100 命中 forbidden）",
+      "category": "app_connection"
+    },
+    {
+      "qid": 47,
+      "expect_pass": true,
+      "answer": "1级高血压的收缩压范围是140-159mmHg。",
+      "kind": "好答案：含 required 关键事实（140/159）",
+      "category": "abnormal_readings"
+    },
+    {
+      "qid": 47,
+      "expect_pass": false,
+      "answer": "1级高血压的收缩压范围是160-179mmHg。",
+      "kind": "坏答案：错误事实（160 命中 forbidden）",
+      "category": "abnormal_readings"
+    },
+    {
+      "qid": 55,
+      "expect_pass": true,
+      "answer": "整机保修期是2年。",
+      "kind": "好答案：含 required 关键事实（2年）",
+      "category": "after_sales_warranty"
+    },
+    {
+      "qid": 55,
+      "expect_pass": false,
+      "answer": "整机保修期是3年。",
+      "kind": "坏答案：错误事实（3年 命中 forbidden）",
+      "category": "after_sales_warranty"
+    }
+  ]
+}

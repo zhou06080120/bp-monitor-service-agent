@@ -18,6 +18,7 @@ import os  # 读取环境变量：DEEPSEEK_API_KEY / LLM_TIMEOUT / LLM_MAX_RETRI
 from openai import OpenAI  # OpenAI SDK：DeepSeek 兼容 OpenAI 协议，复用官方客户端调用
 from skill_manager import SkillManager  # Skill 文件管理器：load_all() 每次从磁盘读最新技能
 from skill_store import SkillStore  # Skill 分块索引：技能多时提供混合检索（Dense+BM25+RRF 融合）
+from observability import llm_call_timer  # LLM 调用统一埋点（llm_calls_total / llm_call_duration_seconds）
 
 
 # 系统提示词总模板（三引号字符串内部不可插注释）：定义客服人设与
@@ -100,16 +101,18 @@ class CustomerServiceAgent:
         且 messages 里只含系统提示 + 当前问题（不携带 conversation_history），
         这样每次评估互不干扰。
         """
-        # 调 DeepSeek Chat 接口；temperature=0 贪心解码保证评估可复现
-        response = self.client.chat.completions.create(
-            model=self.model,  # 使用构造时指定的模型
-            messages=[
-                {"role": "system", "content": self._build_system_prompt(question)},  # 系统提示：内含按相关性挂载的 Skill 知识
-                {"role": "user", "content": question},  # 用户消息：仅当前问题（不带历史，保证每题独立）
-            ],
-            temperature=0,  # 零温度采样：输出稳定，便于回归对比
-            max_tokens=400,  # 限制回答长度，控制成本与延迟
-        )
+        # 调 DeepSeek Chat 接口；temperature=0 贪心解码保证评估可复现；
+        # llm_call_timer 统一埋点：LLM 调用成败计数 + 耗时观测（异常原样上抛）
+        with llm_call_timer():
+            response = self.client.chat.completions.create(
+                model=self.model,  # 使用构造时指定的模型
+                messages=[
+                    {"role": "system", "content": self._build_system_prompt(question)},  # 系统提示：内含按相关性挂载的 Skill 知识
+                    {"role": "user", "content": question},  # 用户消息：仅当前问题（不带历史，保证每题独立）
+                ],
+                temperature=0,  # 零温度采样：输出稳定，便于回归对比
+                max_tokens=400,  # 限制回答长度，控制成本与延迟
+            )
         answer_text = response.choices[0].message.content.strip()  # 取首个候选回答并去首尾空白
 
         # 对话历史只做滚动观察窗口，供后台回顾 Agent 使用

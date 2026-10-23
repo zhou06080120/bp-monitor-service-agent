@@ -21,7 +21,10 @@ Sparse（BM25）为什么默认留在应用侧：
 import os  # 读取 Milvus 开关/地址/维度等环境变量
 import math  # BM25 的 idf 对数计算
 import heapq  # Top-K 堆选（避免全量排序）
+import logging  # 标准日志框架（print → logger 改造后的统一出口）
 from collections import Counter  # 词频/文档频统计
+
+logger = logging.getLogger(__name__)  # 模块 logger（经 setup_logging 统一格式化输出）
 
 
 # ═════════════════════════════════════════════════════════════════
@@ -290,5 +293,5 @@ def get_vector_store(dim: int | None = None):
         try:
             return MilvusVectorStore(dim=dim)  # 尝试构造（pymilvus 缺失会抛 RuntimeError）
         except Exception as e:  # 构造失败
-            print(f"  [vector_store] Milvus 初始化失败，回退本地向量库: {e}")  # 打印降级原因（可观测）
+            logger.warning(f"[vector_store] Milvus 初始化失败，回退本地向量库: {e}")  # 记录降级原因（可观测）
     return LocalVectorStore(dim=dim or 256)  # 默认/回退：本地向量库（维度缺省 256）
