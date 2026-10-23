@@ -20,7 +20,7 @@ build-backend = "setuptools.build_meta"
 name = "bp-monitor-service-agent"
 version = "3.1.0"
 description = "血压计客服 Agent 服务：LLM-as-a-Judge 评估 + Skill 自进化 + 混合向量检索 + 异步任务架构"
-readme = "RESUME_GUIDE.md"
+readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Proprietary" }
 dependencies = [
