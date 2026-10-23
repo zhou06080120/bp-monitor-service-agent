@@ -37,6 +37,12 @@ docker compose --profile milvus up -d         # + Milvus 向量库
 
 生产配置（LLM / Embedding / Milvus / Celery）参考 [.env.example](.env.example)。
 
+## 生产加固
+
+- **请求限流**：`RATE_LIMIT_RPM` 控制每分钟每 IP 请求上限（默认 60，`0` 关闭；`/health` 探针豁免），超限返回 429 + `Retry-After`
+- **优雅关停**：应用退出时向后台 Worker 投递停机哨兵，在跑任务执行完毕后线程才退出（超时不强杀）
+- **LLM 韧性**：全部 LLM 调用自带超时（`LLM_TIMEOUT`）与重试（`LLM_MAX_RETRIES`），上游抖动不拖垮请求
+
 ## CI / CD
 
 每次 push 与 PR 自动执行三段质检（见 [ci.yml](.github/workflows/ci.yml)）：

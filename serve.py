@@ -30,6 +30,7 @@ ROOT = Path(__file__).parent  # 项目根目录（本文件在根目录）
 sys.path.insert(0, str(ROOT / "src"))  # 让 src 内模块可按顶级名导入
 
 from task_queue import TaskManager  # 任务队列门面（inprocess/celery 可插拔）
+from rate_limit import install_rate_limit  # 请求限流中间件（RATE_LIMIT_RPM 控制，0=关闭）
 from pipeline import (SKILLS_DIR, SKILLS_ORIG, load_state, save_state,
                       get_components, _load_business_metrics)  # 复用流水线的路径/状态/组件/商业指标
 
@@ -88,9 +89,15 @@ async def lifespan(app: FastAPI):
           f"vector_backend={components['store'].store.backend}, "
           f"task_backend={tm.impl.backend}")  # 打印运行形态摘要（评估/嵌入/向量/任务后端）
     yield  # 应用运行期（请求都在此后处理）
+    try:  # 优雅关停：等待后台 Worker 完成在跑任务后退出（超时不强杀）
+        tm.shutdown(timeout=10)  # 关停任务队列 Worker 线程
+        print("  [serve] 后台 Worker 已优雅退出")  # 记录关停完成
+    except Exception as e:  # 关停异常不阻断进程退出
+        print(f"  [serve] Worker 关停异常（忽略）: {e}")  # 只告警，继续退出流程
 
 
 app = FastAPI(lifespan=lifespan)  # 创建 FastAPI 应用（挂生命周期）
+install_rate_limit(app)  # 注册按 IP 滑动窗口限流（RATE_LIMIT_RPM=0 时零开销关闭）
 
 SSE_HEADERS = {  # SSE 响应头
     "Cache-Control": "no-cache",  # 禁缓存（事件必须实时）

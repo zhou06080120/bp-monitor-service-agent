@@ -6,6 +6,7 @@
 """
 
 import time
+import threading  # 构造"关停时任务在跑"的同步事件
 
 import task_queue as tq
 
@@ -119,8 +120,50 @@ def test_inprocess_get_unknown_job():
     assert backend.get("no-such-job")["status"] == "unknown"
 
 
+# ── 优雅关停（shutdown） ───────────────────────────────────────────────────────
+
+def test_inprocess_shutdown_waits_for_running_task(monkeypatch, tmp_path):
+    """优雅关停：在跑任务执行完毕拿到结果后，Worker 才退出（不被强杀）。"""
+    monkeypatch.setattr(tq, "JOBS_DIR", tmp_path)
+
+    import pipeline
+    started = threading.Event()  # 标记任务已真正进入执行体
+
+    def _slow_task(task, params, emit):  # 模拟"关停瞬间仍在跑"的短任务
+        started.set()  # Worker 已进入 run_task（此后 shutdown 才有意义）
+        time.sleep(0.2)  # 短暂在跑（避免测试卡顿，只验证不被中途杀死）
+        return {"accuracy": 1.0}
+
+    monkeypatch.setattr(pipeline, "run_task", _slow_task)
+
+    backend = tq.InProcessBackend()
+    job_id = backend.submit("baseline")
+    assert started.wait(timeout=5)  # 确保关停时任务确在跑（消除时序抖动）
+
+    backend.shutdown(timeout=10)  # 优雅关停：应等待在跑任务完成，而非立刻杀线程
+
+    assert all(not t.is_alive() for t in backend._workers)  # Worker 线程全部退出
+    job = backend.get(job_id)
+    assert job["status"] == "done"  # 任务跑完并拿到结果（没被杀死）
+    assert job["result"] == {"accuracy": 1.0}
+
+
+def test_inprocess_shutdown_exits_idle_worker():
+    """空闲 Worker 收到哨兵立即退出（无任务在跑时的最常见关停路径）。"""
+    backend = tq.InProcessBackend()
+    backend.shutdown(timeout=5)  # 队列空：Worker 阻塞在 get()，哨兵唤醒即退出
+    assert all(not t.is_alive() for t in backend._workers)
+
+
 # ── TaskManager 门面 ───────────────────────────────────────────────────────────
 
 def test_task_manager_defaults_to_inprocess():
     tm = tq.TaskManager()  # conftest 已固定 TASK_BACKEND=inprocess
     assert tm.impl.backend == "inprocess"
+
+
+def test_task_manager_shutdown_passthrough():
+    """门面透传：TaskManager.shutdown 应让底层 Worker 优雅退出。"""
+    tm = tq.TaskManager()  # inprocess 后端
+    tm.shutdown(timeout=5)  # 无任务在跑：Worker 应立即经哨兵退出
+    assert all(not t.is_alive() for t in tm.impl._workers)  # 透传确实生效

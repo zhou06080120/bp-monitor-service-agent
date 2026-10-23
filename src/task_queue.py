@@ -25,6 +25,7 @@ import os  # 读取 TASK_BACKEND 环境变量（inprocess / celery 切换）
 import json  # 事件 JSONL 落盘的序列化/反序列化
 import queue  # 进程内任务队列（线程安全 FIFO）
 import uuid  # 生成全局唯一 job_id
+import time  # shutdown 关停期限的单调时钟
 import threading  # 后台 Worker 线程与并发锁
 import traceback  # 任务失败时记录异常堆栈尾部
 from pathlib import Path  # 定位 outputs/jobs/ 事件日志目录
@@ -73,6 +74,8 @@ class EventLog:
 
 # ── In-Process：线程 Worker + 内存事件 ─────────────────────────────────────────
 
+_STOP = object()  # 停机哨兵：shutdown 向队列投递的特殊元素，Worker 取到即退出循环
+
 # ═════════════════════════════════════════════════════════════════
 # InProcessBackend —— 默认后端：进程内线程 Worker（零依赖）
 # 提交即返回 job_id；后台线程从队列取任务串行执行 pipeline.run_task，
@@ -86,9 +89,12 @@ class InProcessBackend:
         self.events: dict[str, EventLog] = {}  # job_id → 事件日志实例
         self._q: queue.Queue = queue.Queue()  # 待执行任务的 FIFO 队列
         self._lock = threading.Lock()  # 保护 jobs/events 字典的并发访问
+        self._workers: list[threading.Thread] = []  # Worker 线程引用表（shutdown 逐个 join 用）
         for i in range(max(1, worker_count)):  # 至少启动 1 个 Worker 线程
-            threading.Thread(target=self._worker, name=f"job-worker-{i}",
-                             daemon=True).start()  # daemon 线程：主进程退出即结束
+            t = threading.Thread(target=self._worker, name=f"job-worker-{i}",
+                                 daemon=True)  # daemon 兜底：正常路径先经 shutdown 优雅退出，异常时随进程结束
+            t.start()  # 启动 Worker
+            self._workers.append(t)  # 保存引用，供 shutdown 等待退出
 
     def submit(self, task: str, params: dict | None = None) -> str:
         job_id = uuid.uuid4().hex[:12]  # 生成 12 位十六进制随机任务 ID
@@ -109,15 +115,28 @@ class InProcessBackend:
         events = log.since(after_seq) if log else []  # 拉取游标之后的增量事件（无日志则空）
         return events, self.get(job_id)  # 事件与任务状态一并返回
 
+    def shutdown(self, timeout: float = 30.0):
+        """优雅关停：向每个 Worker 投递停机哨兵，等待其退出（在跑任务执行完）。"""
+        for _ in self._workers:  # 每个 Worker 一个哨兵
+            self._q.put(_STOP)   # 投递停机信号
+        deadline = time.monotonic() + timeout  # 关停期限
+        for t in self._workers:  # 逐线程等待退出
+            t.join(timeout=max(0.0, deadline - time.monotonic()))  # 不超过剩余期限（超时不强杀，daemon 兜底）
+
     # ═══════════════════════════════════════════════════════════
     # _worker：后台线程主循环——从队列取任务 → 执行 pipeline →
     # 记录结果/异常。单 Worker 串行保证实验状态互斥，无需分布式锁
     # ═══════════════════════════════════════════════════════════
     def _worker(self):
-        while True:  # 常驻循环（daemon 线程随进程退出）
-            job_id = self._q.get()  # 阻塞等待下一个任务（无任务时挂起）
+        while True:  # 常驻循环（仅取到停机哨兵才退出）
+            item = self._q.get()  # 阻塞等待下一个任务（无任务时挂起）
+            if item is _STOP:  # 停机哨兵：shutdown 投递的优雅关停信号
+                self._q.task_done()  # 哨兵也结算队列计数（与 get 配对，保持 join 语义）
+                break  # 退出循环：在跑任务已执行完，Worker 线程正常结束
+            job_id = item  # 普通元素是 job_id 字符串
             job = self.jobs.get(job_id)  # 取任务登记信息
             if not job:  # 登记信息丢失（异常情况）
+                self._q.task_done()  # 跳过前也结算队列计数（get 与 task_done 必须配对）
                 continue  # 跳过继续等下一个
             job["status"] = "running"  # 标记为执行中
             log = self.events[job_id]  # 取该任务事件日志
@@ -183,6 +202,9 @@ class CeleryQueueBackend:
                         events.append(e)  # 收集
         return events, self.get(job_id)  # 与进程内后端返回结构完全一致
 
+    def shutdown(self, timeout: float = 30.0):
+        pass  # 跨进程架构：Worker 由 Celery 自身管理，Web 进程无从也不需关停
+
 
 # ── 统一门面 ──────────────────────────────────────────────────────────────────
 
@@ -206,3 +228,6 @@ class TaskManager:
 
     def poll_events(self, job_id: str, after_seq: int) -> tuple[list[dict], dict]:
         return self.impl.poll_events(job_id, after_seq)  # 透传事件增量拉取（SSE 用）
+
+    def shutdown(self, timeout: float = 30.0):
+        self.impl.shutdown(timeout)  # 门面透传（两种后端接口一致）

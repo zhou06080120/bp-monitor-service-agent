@@ -23,3 +23,7 @@ os.environ["BP_EMBED_MODEL_DIR"] = ""
 os.environ["EMBED_API_KEY"] = ""
 os.environ["DEEPSEEK_API_KEY"] = ""
 os.environ["JUDGE_API_KEY"] = ""
+
+# 限流默认关闭：单测不受限流干扰，限流专项测试（test_rate_limit.py）自建独立 app。
+# setdefault 而非强制覆盖：需在导入 serve 之前执行（serve 导入时读该值决定是否注册中间件）
+os.environ.setdefault("RATE_LIMIT_RPM", "0")
