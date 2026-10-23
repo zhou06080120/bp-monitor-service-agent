@@ -173,6 +173,10 @@ header h1{font-size:17px;font-weight:700;flex:1}
 .diff-col h4{font-size:11px;color:var(--muted);margin-bottom:6px}
 .diff-pre{background:var(--code-bg);padding:10px;border-radius:6px;font-size:11px;white-space:pre-wrap;word-break:break-word;color:#cbd5e1;line-height:1.5;max-height:400px;overflow-y:auto}
 
+/* ── Footer（医疗合规免责声明，P3） ── */
+footer{flex-shrink:0;padding:7px 16px;background:var(--surf);border-top:1px solid var(--border);text-align:center;font-size:11px;color:var(--muted);line-height:1.6}
+footer .ai-tag{color:var(--warn)}
+
 /* Scrollbar */
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -228,6 +232,12 @@ header h1{font-size:17px;font-weight:700;flex:1}
   </aside>
 
 </div>
+
+<!-- ── 医疗合规页脚：免责声明文案与 src/compliance.py 的 MEDICAL_DISCLAIMER 常量一致 ── -->
+<footer>
+  ⚠ 本回答仅供健康教育参考，不能替代执业医师诊疗意见；如有不适或异常读数，请及时就医。
+  <span class="ai-tag">以上内容由 AI 生成</span>
+</footer>
 
 <!-- 版本对比 Modal -->
 <div id="modal" class="hidden">

@@ -23,7 +23,7 @@ pip install -e ".[dev]"
 # 2. 启动服务（零配置即离线形态）
 uvicorn serve:app --host 0.0.0.0 --port 8000
 
-# 3. 运行测试（49 个用例，全程离线）
+# 3. 运行测试（79 个用例，全程离线）
 pytest --cov
 ```
 
@@ -42,6 +42,16 @@ docker compose --profile milvus up -d         # + Milvus 向量库
 - **请求限流**：`RATE_LIMIT_RPM` 控制每分钟每 IP 请求上限（默认 60，`0` 关闭；`/health` 探针豁免），超限返回 429 + `Retry-After`
 - **优雅关停**：应用退出时向后台 Worker 投递停机哨兵，在跑任务执行完毕后线程才退出（超时不强杀）
 - **LLM 韧性**：全部 LLM 调用自带超时（`LLM_TIMEOUT`）与重试（`LLM_MAX_RETRIES`），上游抖动不拖垮请求
+
+## 医疗合规
+
+面向医疗器械客服场景的合规底线，统一实现在 `src/compliance.py`（纯标准库零依赖，姊妹项目同款口径）：
+
+- **免责声明策略**：全站统一医疗免责声明常量 `MEDICAL_DISCLAIMER`——"本回答仅供健康教育参考，不能替代执业医师诊疗意见；如有不适或异常读数，请及时就医"；前端页脚（`index.html`）固定展示同一文案并附带"以上内容由 AI 生成"标识
+- **输入校验**：`validate_query()` 对用户输入做清洗——空/纯空白拒绝、控制字符剥离（防日志注入）、500 字上限（超长多为滥用）；`check_injection()` 拦截高置信 Prompt 注入（指令覆盖 / 角色劫持 / 系统探测），只收录高置信攻击语句，宁可漏报不误伤正常医疗咨询
+- **密钥零硬编码**：所有 API Key（`DEEPSEEK_API_KEY` / `JUDGE_API_KEY` / `EMBED_API_KEY`）仅经环境变量注入，模板见 [.env.example](.env.example)（密钥值只留占位符），`.env` 已被 .gitignore 忽略；无 Key 时自动降级为离线形态而非报错
+
+本项目 API 均为路径参数驱动（无用户自由文本输入面），输入校验与注入拦截能力由 `tests/test_compliance.py` 单测锁定。
 
 ## 可观测性
 
@@ -101,7 +111,7 @@ python evals/gate.py   # 全部 PASS 退出码 0；任一 FAIL 退出码 1
 每次 push 与 PR 自动执行三段质检（见 [ci.yml](.github/workflows/ci.yml)）：
 
 ```
-Lint (ruff) ──▶ Test (py3.10 + py3.12, 49 用例, 覆盖率门槛 30%) ──▶ Docker build
+Lint (ruff) ──▶ Test (py3.10 + py3.12, 79 用例, 覆盖率门槛 30%) ──▶ Docker build
 ```
 
 ## 项目结构
