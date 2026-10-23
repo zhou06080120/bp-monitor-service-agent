@@ -24,6 +24,12 @@ os.environ["EMBED_API_KEY"] = ""
 os.environ["DEEPSEEK_API_KEY"] = ""
 os.environ["JUDGE_API_KEY"] = ""
 
+# P4 鉴权默认关闭：业务 app 导入时读这两个值决定是否注册鉴权中间件，
+# 宿主机若配置了真实 Key 会误开鉴权导致全部用例 401——强制清空保确定性；
+# 鉴权专项测试（test_auth.py）自建独立 app 并按用例 monkeypatch 配置 Key
+os.environ["BP_API_KEYS"] = ""
+os.environ["BP_ADMIN_KEYS"] = ""
+
 # 限流默认关闭：单测不受限流干扰，限流专项测试（test_rate_limit.py）自建独立 app。
 # setdefault 而非强制覆盖：需在导入 serve 之前执行（serve 导入时读该值决定是否注册中间件）
 os.environ.setdefault("RATE_LIMIT_RPM", "0")

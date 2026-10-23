@@ -23,7 +23,7 @@ pip install -e ".[dev]"
 # 2. 启动服务（零配置即离线形态）
 uvicorn serve:app --host 0.0.0.0 --port 8000
 
-# 3. 运行测试（79 个用例，全程离线）
+# 3. 运行测试（103 个用例，全程离线）
 pytest --cov
 ```
 
@@ -52,6 +52,29 @@ docker compose --profile milvus up -d         # + Milvus 向量库
 - **密钥零硬编码**：所有 API Key（`DEEPSEEK_API_KEY` / `JUDGE_API_KEY` / `EMBED_API_KEY`）仅经环境变量注入，模板见 [.env.example](.env.example)（密钥值只留占位符），`.env` 已被 .gitignore 忽略；无 Key 时自动降级为离线形态而非报错
 
 本项目 API 均为路径参数驱动（无用户自由文本输入面），输入校验与注入拦截能力由 `tests/test_compliance.py` 单测锁定。
+
+## P4 平台安全
+
+API 鉴权 + Skill 变更人工审批 gate + 管理操作审计，统一实现在 `src/auth.py` / `src/approval.py` / `src/audit.py`（姊妹项目同款口径）：
+
+- **API 双级鉴权**：环境变量 `BP_API_KEYS`（普通 Key）/ `BP_ADMIN_KEYS`（管理 Key，逗号分隔可多个），请求头 `X-API-Key` 携带；无 Key / 错 Key 一律 401；豁免 `/health`、`/metrics`、`/` 与 OPTIONS 预检；两者均未配置时鉴权关闭（本地开发放行）。中间件洋葱序为 observability（最外）→ rate_limit → auth → 路由：限流先于鉴权压制 Key 暴力枚举，401/403 也被指标统计
+
+  ```bash
+  curl -H "X-API-Key: user-key-..." localhost:8000/state                    # 普通 Key：读端点
+  curl -H "X-API-Key: admin-key-..." -X POST localhost:8000/reset          # 管理 Key：重置实验
+  ```
+
+  读端点（`/job/*`、`/stream/*`、`/state`、`/skills` 等）普通 Key 即可；`/reset` 与审批端点需 admin 角色（403 拦截）
+- **审批 gate**：`BP_APPROVAL_MODE=manual` 时，Reviewer 产出的 create/patch 动作不再自动落盘，而是写入待审批队列（`outputs/approvals/pending.jsonl`）并在 SSE 事件流发 `approval_pending` 事件；管理员经三个端点处置（均需 admin Key）：
+
+  ```bash
+  curl -H "X-API-Key: admin-key-..." localhost:8000/approvals                     # 查看待审单据
+  curl -H "X-API-Key: admin-key-..." -X POST localhost:8000/approvals/{id}/approve  # 批准：复用 Worker 同款应用函数落盘
+  curl -H "X-API-Key: admin-key-..." -X POST localhost:8000/approvals/{id}/reject   # 拒绝：仅标记
+  ```
+
+  默认 `auto` 保持自动应用（零改动升级）。安全红线校验仍先于审批：命中红线的动作直接阻断，不进审批队列
+- **管理操作审计**：`/reset` 与审批决策（`approve_patch` / `reject_patch` / `reset_state`）逐条追加写入 `logs/audit.jsonl`（`BP_AUDIT_PATH` 可重定向），含 ts / actor（Key 指纹，脱敏不落明文）/ action / target / detail / request_id，与结构化日志同 request_id 可对账
 
 ## 可观测性
 
@@ -111,7 +134,7 @@ python evals/gate.py   # 全部 PASS 退出码 0；任一 FAIL 退出码 1
 每次 push 与 PR 自动执行三段质检（见 [ci.yml](.github/workflows/ci.yml)）：
 
 ```
-Lint (ruff) ──▶ Test (py3.10 + py3.12, 79 用例, 覆盖率门槛 30%) ──▶ Docker build
+Lint (ruff) ──▶ Test (py3.10 + py3.12, 103 用例, 覆盖率门槛 30%) ──▶ Docker build
 ```
 
 ## 项目结构

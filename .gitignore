@@ -13,7 +13,11 @@ htmlcov/
 
 # ── 运行时状态（Skill 版本历史/快照/实验状态/任务事件日志）
 #    均为运行产物：源头在 skills/ 与 data/，outputs 由部署环境卷挂载持久化
+#    （outputs/ 整体忽略已覆盖 outputs/approvals/ 审批队列）
 outputs/
+
+# ── 管理操作审计日志（P4：logs/audit.jsonl，BP_AUDIT_PATH 可重定向） ─────────
+logs/
 
 # ── 环境与本地配置（含密钥，绝不入库） ──────────────────────────
 .env

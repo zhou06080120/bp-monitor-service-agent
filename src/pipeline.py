@@ -21,6 +21,7 @@ from pathlib import Path  # 统一管理 skills/outputs/data 各目录路径
 from datetime import datetime  # 评估结果打时间戳
 
 from redline_guard import check_action as redline_check_action  # 安全红线守卫：进化动作落盘前的确定性校验
+from approval import request_approval  # 审批 gate：manual 模式下 Skill 变更转人工审批
 
 ROOT = Path(__file__).parent.parent  # 项目根目录（本文件在 src/ 下）
 
@@ -38,6 +39,84 @@ _components: dict = {}  # 进程级组件缓存（SkillManager/Agent 等，懒�
 _state_lock = None  # 状态锁占位（下一行立即赋真值）
 import threading  # 状态文件读写的线程锁
 _state_lock = threading.Lock()  # 串行化 load_state/save_state，防并发写坏 JSON
+
+
+# ═════════════════════════════════════════════════════════════════
+# AuditLogger —— 答案级业务审计（全量留痕 + 高风险复核队列）
+# P4 起管理操作审计（reset/审批等）由 src/audit.py 的 record_audit 统一承担；
+# 本类只负责逐题答案留痕：outputs/audit_log.jsonl 全量 + risk_queue.jsonl 高风险
+# ═════════════════════════════════════════════════════════════════
+AUDIT_LOG_FILE = ROOT / "outputs" / "audit_log.jsonl"   # 全量答案审计日志（JSONL）
+RISK_QUEUE_FILE = ROOT / "outputs" / "risk_queue.jsonl"  # 高风险复核队列（待销案）
+RISK_KEYWORDS = ("120", "急诊", "就医", "医院")  # 高风险关键词：题面或回答命中即进复核队列
+
+
+class AuditLogger:
+    """逐题答案审计器：/state 的 audit_stats 数据源（累计条数/高风险数/待复核数）。"""
+
+    def __init__(self):
+        self.log_file = AUDIT_LOG_FILE   # 全量审计日志路径
+        self.risk_file = RISK_QUEUE_FILE  # 高风险复核队列路径
+        self._lock = threading.Lock()     # 追加写互斥（Worker 线程串行，双保险）
+        self._n_answers = self._count_lines(self.log_file)   # 答案累计（重启读回历史）
+        self._n_risk = self._count_lines(self.risk_file)     # 高风险累计（重启读回历史）
+
+    @staticmethod
+    def _count_lines(p: Path) -> int:
+        """数一个 JSONL 文件的非空行数（文件缺失返回 0）。"""
+        try:
+            return len([ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()])
+        except OSError:  # 文件不存在等
+            return 0
+
+    @staticmethod
+    def _append(p: Path, entry: dict) -> None:
+        """向 JSONL 文件追加一条记录（目录缺失自愈）。"""
+        p.parent.mkdir(parents=True, exist_ok=True)  # 目录自愈（与 Skill 快照目录同策略）
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    def log_answer(self, question: str, answer: str, correct: bool, reason: str,
+                   run_id: str, mount: dict, judge: dict, latency_ms: float) -> None:
+        """单题留痕：写全量审计日志；题面/回答命中高风险关键词再同步进复核队列。"""
+        risk = any(kw in question or kw in answer for kw in RISK_KEYWORDS)  # 高风险主题识别
+        entry = {  # 单条答案审计记录（字段与历史格式一致）
+            "ts": datetime.now().isoformat(),  # 时间戳
+            "run_id": run_id,                  # 所属评估轮次
+            "question": question,              # 用户问题
+            "answer": answer,                  # Agent 回答
+            "correct": correct,                # 是否答对
+            "reason": reason,                  # 判定理由（推脱/缺关键词/禁止词）
+            "latency_ms": round(latency_ms, 1),  # 端到端延迟
+            "mount_sections": (mount or {}).get("sections", []),  # 本次挂载的分块溯源
+            "judge": judge,                    # 判定证据（模式/相似度/Judge 裁决）
+            "risk": risk,                      # 是否高风险（进复核队列）
+        }
+        with self._lock:  # 持锁追加：两个文件的写入与计数原子完成
+            self._append(self.log_file, entry)  # 全量留痕
+            if risk:  # 高风险条目
+                self._append(self.risk_file, entry)  # 同步进复核队列
+            self._n_answers += 1  # 答案计数 +1
+            if risk:  # 高风险计数 +1
+                self._n_risk += 1
+
+    def stats(self) -> dict:
+        """审计统计摘要（/state 与终局事件的 audit_stats 数据源）。"""
+        return {"answers": self._n_answers, "risk_flagged": self._n_risk}
+
+    def pending_risks(self, limit: int = 100) -> list[dict]:
+        """待人工复核的高风险条目（最近的 limit 条；全部视为待销案）。"""
+        try:
+            lines = [ln for ln in self.risk_file.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        except OSError:  # 队列尚未产生
+            return []
+        entries = []  # 解析结果
+        for line in lines:  # 逐行解析（坏行容错跳过）
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return entries[-limit:]  # 取最近 limit 条
 
 
 # ── 实验状态持久化 ────────────────────────────────────────────────────────────
@@ -79,7 +158,6 @@ def get_components() -> dict:
         from agent import CustomerServiceAgent  # 客服 Agent
         from background_reviewer import BackgroundReviewer  # 失败复盘器
         from runtime_metrics import RuntimeMetrics  # 商业指标实测
-        from audit import AuditLogger  # 审计留痕 + 高风险队列
 
         sm = SkillManager(str(SKILLS_DIR), str(VERSIONS_DIR))  # 技能管理器（skills/ + 版本目录）
         ev = Evaluator(str(EVAL_SET), mode=os.getenv("EVAL_MODE", "auto"))  # 评估器（模式可环境变量覆盖，默认自动降级）
@@ -150,6 +228,55 @@ def run_task(task: str, params: dict, emit) -> dict:
     if task == "final":  # 最终评估
         return run_final(emit)  # 再跑 60 题得到终局准确率（约 93%）
     raise ValueError(f"未知任务: {task}")  # 未知任务直接报错
+
+
+# ═════════════════════════════════════════════════════════════════
+# apply_skill_action：单条进化动作的统一应用入口——后台 Worker（自动应用）
+# 与审批端点（approve 后补应用）共用同一条落盘路径，保证行为一致
+# ═════════════════════════════════════════════════════════════════
+def apply_skill_action(sm, act: dict) -> bool:
+    """按动作类型分派到 SkillManager（create/patch），返回是否落盘成功。"""
+    if act.get("action") == "create":  # 新建技能
+        return bool(sm.create(act["skill_name"], act["content"],  # 落盘新 SKILL.md + v1 历史
+                              reason=act.get("reason", "")))
+    if act.get("action") == "patch":  # 修补技能
+        return bool(sm.patch(act["skill_name"], act["old_text"],  # 精确替换 + 版本 +1
+                             act["new_text"], reason=act.get("reason", "")))
+    return False  # 未知动作类型视为失败
+
+
+# ═════════════════════════════════════════════════════════════════
+# execute_reviewer_action：单条 Reviewer 动作的执行链（run_block 逐条调用）
+# 红线校验 → 审批 gate → Skill 落盘 → 运行时记账 + 事件透出；
+# BP_APPROVAL_MODE=manual 时动作转入 pending 队列、本轮跳过落盘
+# ═════════════════════════════════════════════════════════════════
+def execute_reviewer_action(sm, metrics, act: dict, emit, block_index: int,
+                            executed: list) -> None:
+    """执行单条进化动作：红线阻断 / 待审批 / 落盘成功分别走各自事件分支。"""
+    try:  # 单个动作失败不影响其余动作
+        # 安全红线守卫：LLM 生成的规则与医疗红线冲突 → 阻断，不落盘
+        violations = redline_check_action(act)  # 红线扫描（确定性正则）
+        if violations:  # 命中红线
+            emit("redline_blocked", action=act.get("action"),
+                 skill_name=act.get("skill_name"),
+                 violations=[v["message"] for v in violations])  # 事件透出阻断详情
+            return  # 跳过该动作（不落盘，也不进审批队列）
+        # 审批 gate：manual 模式把动作转入 pending 队列，本轮跳过落盘
+        if not request_approval(f"skill_{act.get('action', 'patch')}", act):
+            emit("approval_pending", action=act.get("action"),
+                 skill_name=act.get("skill_name"),
+                 reason="已转入待审批（BP_APPROVAL_MODE=manual），经 /approvals 端点处理")  # 事件流留痕
+            return  # 不落盘、不计入 executed（本轮无进化生效）
+        if apply_skill_action(sm, act):  # 动作执行成功（Worker 与审批端点共用的落盘入口）
+            executed.append({"action": act["action"],
+                             "skill_name": act["skill_name"],
+                             "reason": act.get("reason", "")[:120]})  # 记入已执行清单（回滚依据）
+            if act["action"] == "create":  # 新技能上线
+                metrics.record_skill_created(act["skill_name"],
+                                             f"block_{block_index}")  # 记录上线事件（类目周期指标）
+            emit("skill_action", **executed[-1])  # 事件透出（进化日志渲染）
+    except Exception as e:  # 动作执行异常
+        emit("skill_error", error=str(e)[:100])  # 事件透出错误
 
 
 # ── 基线评估 ──────────────────────────────────────────────────────────────────
@@ -298,32 +425,9 @@ def run_block(block_index: int, emit) -> dict:
         emit("reviewer_analysis", analysis=getattr(reviewer, "last_analysis", ""))  # 透出分析文本（进化日志展示）
 
         for act in (actions or []):  # 逐个执行动作（可能 0~N 个）
-            try:  # 单个动作失败不影响其余动作
-                # 安全红线守卫：LLM 生成的规则与医疗红线冲突 → 阻断，不落盘
-                violations = redline_check_action(act)  # 红线扫描（确定性正则）
-                if violations:  # 命中红线
-                    emit("redline_blocked", action=act.get("action"),
-                         skill_name=act.get("skill_name"),
-                         violations=[v["message"] for v in violations])  # 事件透出阻断详情
-                    continue  # 跳过该动作（不落盘）
-                if act["action"] == "create":  # 新建技能
-                    ok_act = sm.create(act["skill_name"], act["content"],
-                                       reason=act.get("reason", ""))  # 落盘新 SKILL.md + v1 历史
-                elif act["action"] == "patch":  # 修补技能
-                    ok_act = sm.patch(act["skill_name"], act["old_text"],
-                                      act["new_text"], reason=act.get("reason", ""))  # 精确替换 + 版本 +1
-                else:  # 未知动作类型
-                    ok_act = False  # 视为失败
-                if ok_act:  # 动作执行成功
-                    executed.append({"action": act["action"],
-                                     "skill_name": act["skill_name"],
-                                     "reason": act.get("reason", "")[:120]})  # 记入已执行清单（回滚依据）
-                    if act["action"] == "create":  # 新技能上线
-                        metrics.record_skill_created(act["skill_name"],
-                                                     f"block_{block_index}")  # 记录上线事件（类目周期指标）
-                    emit("skill_action", **executed[-1])  # 事件透出（进化日志渲染）
-            except Exception as e:  # 动作执行异常
-                emit("skill_error", error=str(e)[:100])  # 事件透出错误
+            # 执行链统一入口：红线校验 → 审批 gate → 落盘 → 记账/事件
+            # （BP_APPROVAL_MODE=manual 时动作转 pending 队列，本轮不落盘）
+            execute_reviewer_action(sm, metrics, act, emit, block_index, executed)
 
         emit("nudge_complete", num_actions=len(executed))  # Nudge 完成事件（含动作数）
 

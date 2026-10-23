@@ -26,19 +26,34 @@ from contextlib import asynccontextmanager  # FastAPI lifespan 生命周期管�
 from fastapi import FastAPI  # Web 框架
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse  # SSE 流/静态页/JSON 响应
 from fastapi import HTTPException  # 抛 409 等业务错误
+from fastapi import Depends, Request  # 管理端点依赖注入（require_admin 守卫 / actor 提取）
 
 ROOT = Path(__file__).parent  # 项目根目录（本文件在根目录）
 sys.path.insert(0, str(ROOT / "src"))  # 让 src 内模块可按顶级名导入
 
 from task_queue import TaskManager  # 任务队列门面（inprocess/celery 可插拔）
+from auth import install_auth, require_admin  # API Key 双级鉴权（中间件 + 管理端点守卫）
+from audit import record_audit  # 管理操作审计留痕（JSONL）
+from approval import list_pending, approve, reject  # Skill 变更审批队列（pending 单据）
 from rate_limit import install_rate_limit  # 请求限流中间件（RATE_LIMIT_RPM 控制，0=关闭）
 from observability import install_observability, setup_logging  # 可观测性：结构化日志 + 最外层指标中间件
 from pipeline import (SKILLS_DIR, SKILLS_ORIG, load_state, save_state,
-                      get_components, _load_business_metrics)  # 复用流水线的路径/状态/组件/商业指标
+                      get_components, _load_business_metrics,
+                      apply_skill_action)  # 复用流水线的路径/状态/组件/商业指标/动作应用入口
 
 logger = logging.getLogger(__name__)  # 模块 logger（经 setup_logging 统一格式化输出）
 
 setup_logging()  # 初始化根日志器（默认 JSON 行式；BP_LOG_FORMAT=text 切人读格式）——须在组件构建前生效
+
+
+# ═════════════════════════════════════════════════════════════════
+# _require_admin：管理端点守卫依赖适配器——为 auth.require_admin 的
+# request 形参补上 Request 类型标注（FastAPI 仅对带标注的形参注入请求
+# 对象；无标注会被当作查询参数导致 422），本体逻辑完全复用 auth.py
+# ═════════════════════════════════════════════════════════════════
+def _require_admin(request: Request) -> None:
+    """管理守卫依赖：鉴权启用时非 admin 角色 403（见 auth.require_admin）。"""
+    require_admin(request)  # 预置守卫本体（勿改 auth.py，经适配器调用）
 
 tm = TaskManager()  # 全局任务管理器（按 TASK_BACKEND 选择后端）
 _active_job: dict = {}   # task_key -> job_id（防重复提交；终态后自动清理）
@@ -107,11 +122,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)  # 创建 FastAPI 应用（挂生命周期）
+# 顺序约定（关键，洋葱模型）：install_auth → install_rate_limit → install_observability
+# 依次注册，FastAPI 后注册的 HTTP 中间件位于外层，最终请求顺序为
+# observability（最外层）→ rate_limit → auth → 路由：
+#   - 限流先于鉴权执行：Key 暴力枚举在触达鉴权前就被 429 压制
+#   - 鉴权在最内层：401/403 也会流经可观测中间件，被计入指标与结构化日志
+install_auth(app)  # 注册 API Key 鉴权（BP_API_KEYS/BP_ADMIN_KEYS 均未配置时不注册=本地放行）
 install_rate_limit(app)  # 注册按 IP 滑动窗口限流（RATE_LIMIT_RPM=0 时零开销关闭）
-# 顺序约定（关键）：可观测中间件必须在限流中间件**之后**注册——
-# FastAPI 后注册的 HTTP 中间件位于外层，这样限流器直接返回的 429 响应
-# 也会流经可观测中间件，被计入 http_requests_total{status="429"} 与
-# rate_limit_rejected_total（否则 429 会被内层短路，指标永远抓不到）
 install_observability(app)  # 注册最外层可观测中间件（X-Request-ID + 指标）与 /metrics 端点
 
 SSE_HEADERS = {  # SSE 响应头
@@ -339,11 +356,11 @@ async def get_skill_version(name: str, version: int):
 
 
 # ═════════════════════════════════════════════════════════════════
-# /reset：重置实验——还原技能、清状态、重建索引；
-# 有任务运行时拒绝（防止半途回滚造成状态错乱）
+# /reset：重置实验——还原技能、清状态、重建索引（P4 起需管理员 Key）；
+# 有任务运行时拒绝（防止半途回滚造成状态错乱）；操作全程审计留痕
 # ═════════════════════════════════════════════════════════════════
-@app.post("/reset")
-async def reset():
+@app.post("/reset", dependencies=[Depends(_require_admin)])
+async def reset(request: Request):
     """重置实验：还原初始 Skill、清空状态并重建向量索引（有任务在跑时拒绝）。"""
     _cleanup_finished_jobs()  # 清理终态任务
     if _active_job:  # 仍有任务在跑
@@ -358,7 +375,59 @@ async def reset():
     # 重建 Skill 向量索引（skills 已还原）
     c = get_components()  # 取组件
     c["store"].reindex_all(c["sm"].load_all())  # 用还原后的技能重建索引
+    record_audit("reset_state", target="experiment",  # 管理操作审计留痕（谁在何时重置了实验）
+                 detail={"phase": "idle", "current_block": 0},
+                 actor=getattr(request.state, "actor_id", "-"))  # actor 取鉴权中间件写的 Key 指纹
     return {"status": "ok"}  # 返回成功
+
+
+# ── 审批 gate（P4）：Skill 变更人工审批单据（全部 admin 保护 + 审计留痕）───────
+
+# ═════════════════════════════════════════════════════════════════
+# GET /approvals：列出全部待审批单据（BP_APPROVAL_MODE=manual 时由
+# 后台 Worker 在自动应用前写入 pending 队列）
+# ═════════════════════════════════════════════════════════════════
+@app.get("/approvals", dependencies=[Depends(_require_admin)])
+async def list_approvals():
+    """返回全部待审批的 Skill 变更单据（含 payload，供管理员审阅差异）。"""
+    return JSONResponse({"pending": list_pending()})  # 待审清单（已决单不出现）
+
+
+# ═════════════════════════════════════════════════════════════════
+# POST /approvals/{aid}/approve：批准单据——取出 payload 复用后台 Worker
+# 同款应用函数（apply_skill_action）真正落盘，并重建检索索引
+# ═════════════════════════════════════════════════════════════════
+@app.post("/approvals/{aid}/approve", dependencies=[Depends(_require_admin)])
+async def approve_patch(aid: str, request: Request):
+    """批准一张审批单：payload 落盘 + 索引重建 + 审计留痕。"""
+    payload = approve(aid)  # 状态置 approved 并返回 payload
+    if payload is None:  # 单据不存在或已处理
+        raise HTTPException(404, f"审批单不存在或已处理: {aid}")
+    c = get_components()  # 取组件（应用函数需要 sm）
+    applied = apply_skill_action(c["sm"], payload)  # 与后台 Worker 同一条落盘路径
+    if applied:  # 变更真正生效：重建向量索引（新规则即刻可检索）
+        c["store"].reindex_all(c["sm"].load_all())
+    record_audit("approve_patch", target=aid,  # 审批决策审计留痕
+                 detail={"applied": applied, "action": payload.get("action"),
+                         "skill_name": payload.get("skill_name")},
+                 actor=getattr(request.state, "actor_id", "-"))
+    return {"status": "approved", "applied": applied}  # applied=False 表示 payload 已失配（如 old_text 被改过）
+
+
+# ═════════════════════════════════════════════════════════════════
+# POST /approvals/{aid}/reject：拒绝单据——仅标记 rejected，不落盘任何变更
+# ═════════════════════════════════════════════════════════════════
+@app.post("/approvals/{aid}/reject", dependencies=[Depends(_require_admin)])
+async def reject_patch(aid: str, request: Request):
+    """拒绝一张审批单：仅标记状态 + 审计留痕（Skill 不受影响）。"""
+    entry = reject(aid)  # 状态置 rejected
+    if entry is None:  # 单据不存在或已处理
+        raise HTTPException(404, f"审批单不存在或已处理: {aid}")
+    record_audit("reject_patch", target=aid,  # 审批决策审计留痕
+                 detail={"action_type": entry.get("action_type"),
+                         "skill_name": (entry.get("payload") or {}).get("skill_name")},
+                 actor=getattr(request.state, "actor_id", "-"))
+    return {"status": "rejected"}  # 拒绝完成（无变更落盘）
 
 
 # ── 兼容旧端点：提交 + 原地订阅（老前端无需改动也能用） ──────────────────────
