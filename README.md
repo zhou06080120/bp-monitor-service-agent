@@ -6,6 +6,14 @@
 
 血压计医疗器械客服 Agent 服务：**LLM-as-a-Judge 双模态评估 + Skill 知识自进化 + 混合向量检索 + 异步任务架构**，面向"新类目分钟级上线、人工客服分流 65%+"的医疗器械客服场景。
 
+## 在线体验（公开试运行）
+
+- **Demo**：http://8.148.220.136:8001 ——阿里云轻量服务器常驻部署（Docker 容器化，崩溃自动拉起）；离线可起，配 Key 后完整体验；限流 20 req/min/IP
+- **流量指标**：`GET /metrics`（Prometheus 协议，公开可审计）
+- **反馈**：回答不准？[提交 Issue](../../issues/new?labels=feedback&template=feedback.md)——真实 badcase 将进入 Skill 自进化闭环，修复对比会在 Issue 中回帖
+
+> 部署手册见 [deploy/DEPLOY.md](deploy/DEPLOY.md)（Render 免费形态）；当前实例为阿里云轻量服务器（2C4G）Docker 常驻形态，与姊妹项目 blood-pressure-agent（:8002）、blodd-answer-piper（:8003）同机部署。
+
 ## 核心能力
 
 - **知识自进化闭环**：badcase 驱动 Skill 生成/修补（patch），版本历史 + 快照支持按动作类型精确回滚，种子 Skill 永不丢失
