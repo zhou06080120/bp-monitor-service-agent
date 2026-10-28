@@ -38,16 +38,20 @@ RUN mkdir -p outputs && chown -R appuser:appuser /app
 USER appuser
 
 # 默认离线形态：任何环境都能起（企业级"可用性优先"降级策略）
+# PORT：本地默认 8000；Render/Railway 等平台自动注入（Dockerfile 不用改）
 ENV PYTHONPATH=/deps \
     PYTHONUNBUFFERED=1 \
     EMBED_PROVIDER=hash \
     TASK_BACKEND=inprocess \
-    MILVUS_ENABLED=0
+    MILVUS_ENABLED=0 \
+    PORT=8000
 
 EXPOSE 8000
 
 # 轻量健康检查：/job/active 不触发组件预热，毫秒级返回
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/job/active', timeout=3)"
+    CMD python -c 'import os,urllib.request; urllib.request.urlopen("http://127.0.0.1:%s/job/active" % os.environ.get("PORT","8000"), timeout=3)'
 
-CMD ["uvicorn", "serve:app", "--host", "0.0.0.0", "--port", "8000"]
+# shell 形式以读取 $PORT（平台注入时生效，本地回落 8000）
+# python -m 形式：uvicorn 装在 /deps（PYTHONPATH），可执行文件不在系统 PATH
+CMD python -m uvicorn serve:app --host 0.0.0.0 --port ${PORT:-8000}
