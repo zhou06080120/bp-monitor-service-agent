@@ -1,0 +1,23 @@
+# Render Blueprint：推送到 GitHub 后在 Render 选择 New → Blueprint 即可识别此文件一键部署
+# 文档：https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: bp-monitor-service-agent
+    runtime: docker
+    plan: free                  # 512MB RAM，休眠由 UptimeRobot 心跳解决
+    region: singapore           # 免费可用区中离中国大陆最近
+    healthCheckPath: /health    # 项目自带探针端点（限流豁免）
+    autoDeploy: true            # push main 自动重新部署
+    envVars:
+      # ── 以下两项在 Render Dashboard 弹窗中手动填写（sync: false = 永不写入仓库）──
+      - key: DEEPSEEK_API_KEY   # 留空则离线形态启动（仅展示，无完整对话）
+        sync: false
+      - key: BP_ADMIN_KEYS      # 管理员 Key（保护 /reset 与审批端点），务必设置随机长串
+        sync: false
+      # ── 公开 Demo 预设（可直接用默认值）──
+      - key: RATE_LIMIT_RPM
+        value: "20"             # 公网收紧限流：20 次/分钟/IP（本地默认 60）
+      - key: BP_APPROVAL_MODE
+        value: manual           # AI 产出的 Skill 变更进待审批队列人工落盘，防公开环境被玩坏
+      - key: EVAL_MODE
+        value: auto             # 无 Key 自动降级规则评估
