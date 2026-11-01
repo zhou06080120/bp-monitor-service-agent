@@ -256,7 +256,7 @@ async def stream_events(job_id: str, after_seq: int = 0):
 
 # ── 静态 / 状态接口 ───────────────────────────────────────────────────────────
 
-@app.get("/health", include_in_schema=False)  # 不进 OpenAPI 文档（运维探针端点）
+@app.api_route("/health", methods=["GET", "HEAD"], include_in_schema=False)  # GET+HEAD：兼容第三方监控默认 HEAD 探测（UptimeRobot 免费版不可改 method）；不进 OpenAPI 文档（运维探针端点）
 async def health():
     """健康探针：容器/负载均衡存活检查（限流豁免，见 rate_limit.EXEMPT_PATHS）。"""
     return JSONResponse({"status": "ok"})  # 静态存活应答（不触发组件加载，毫秒级返回）
