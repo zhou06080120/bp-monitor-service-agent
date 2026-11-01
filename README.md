@@ -9,6 +9,7 @@
 ## 在线体验（公开试运行）
 
 - **Demo**：http://8.148.220.136:8001 ——阿里云轻量服务器常驻部署（Docker 容器化，崩溃自动拉起）；离线可起，配 Key 后完整体验；限流 20 req/min/IP
+- **服务状态**：[UptimeRobot 状态页](https://stats.uptimerobot.com/N2GzdOFuea)（第三方独立探测，24h/7d/30d 在线率可审计）
 - **流量指标**：`GET /metrics`（Prometheus 协议，公开可审计）
 - **反馈**：回答不准？[提交 Issue](../../issues/new?labels=feedback&template=feedback.md)——真实 badcase 将进入 Skill 自进化闭环，修复对比会在 Issue 中回帖
 
